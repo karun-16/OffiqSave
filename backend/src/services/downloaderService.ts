@@ -15,6 +15,8 @@ export interface MediaInfo {
     uploader?: string;
     uploader_url?: string;
     formats: any[];
+    mediaType: 'video' | 'audio' | 'image' | 'gallery';
+    images?: Array<{ id: string; url: string; width?: number; height?: number; format: string }>;
 }
 
 export class DownloaderService {

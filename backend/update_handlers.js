@@ -1,4 +1,8 @@
-import { BaseHandler } from './BaseHandler';
+const fs = require('fs');
+const path = require('path');
+
+const filePath = path.join(__dirname, 'src', 'services', 'handlers', 'PlatformHandlers.ts');
+const newContent = `import { BaseHandler } from './BaseHandler';
 import { MediaInfo } from '../downloaderService';
 import { extractInstagramNative, extractFacebookNative, extractPinterestNative, extractRedditNative, extractGenericNative } from '../extractors/NativeExtractors';
 
@@ -110,3 +114,7 @@ export class GenericMediaHandler extends BaseHandler {
         return extractGenericNative(url);
     }
 }
+`;
+
+fs.writeFileSync(filePath, newContent, 'utf8');
+console.log('Updated PlatformHandlers.ts');
