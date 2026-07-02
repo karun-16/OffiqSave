@@ -45,3 +45,31 @@ Open your browser to `http://localhost:3000`.
 - Format and quality selectors parsed directly from media metadata.
 - Secure temporary file cleanup (without disk-buffering memory exhaustion).
 - Responsive layout across all screen sizes.
+
+## Authentication (`cookies.txt`)
+
+Many platforms (e.g., Instagram, Pinterest, Facebook) restrict access to private posts, stories, or rate-limit unauthenticated scraping. OffiqSave supports passing session cookies via a `cookies.txt` file to authenticate both native extractors and `yt-dlp`.
+
+### How to use `cookies.txt`:
+
+1. **Install a Cookie Exporter Extension**:
+   Install a browser extension like [Get cookies.txt LOCALLY](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/ccpbcjhhhooidlmnddgedmencbbajbmg) (Chrome) or [Export Cookies](https://addons.mozilla.org/en-US/firefox/addon/export-cookies-txt/) (Firefox).
+
+2. **Log into the Platform**:
+   Open a new tab, navigate to the target platform (e.g., `instagram.com`), and log into your account.
+
+3. **Export Cookies**:
+   While on the platform's tab, click the extension icon and export the cookies in Netscape format.
+
+4. **Place the File**:
+   Rename the downloaded file to `cookies.txt` and place it directly inside the `backend/` directory of the project:
+   ```
+   OffiqSave/
+   ├── backend/
+   │   ├── src/
+   │   ├── package.json
+   │   └── cookies.txt      <-- Place it here
+   ```
+
+5. **Automatic Detection**:
+   The backend will automatically detect the presence of `backend/cookies.txt`. If an unauthenticated request fails, the `BaseHandler` will automatically retry the extraction and download using the provided cookies, successfully downloading private media and stories.

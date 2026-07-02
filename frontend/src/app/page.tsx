@@ -126,26 +126,26 @@ export default function Home() {
   const handleZipDownload = async () => {
     if (!mediaInfo?.images) return;
     setStatus("downloading");
-    setDownloadStageIdx(3); // Start progress
+    setDownloadStageIdx(3);
     
     try {
-      const response = await fetch("http://localhost:5000/api/download-zip", {
+      const response = await fetch("http://localhost:4000/api/download-zip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ images: mediaInfo.images })
+        body: JSON.stringify({ images: mediaInfo.images, sourceUrl: url })
       });
       
       if (!response.ok) throw new Error("ZIP generation failed");
       
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = "gallery.zip";
+      a.href = downloadUrl;
+      a.download = `${(mediaInfo.title || 'gallery').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(downloadUrl);
       
       setStatus("ready");
     } catch (e: any) {
@@ -159,21 +159,27 @@ export default function Home() {
     setStatus("downloading");
     setDownloadStageIdx(3);
     try {
-      const response = await fetch(imgUrl);
+      // Use backend proxy to avoid CORS issues on restricted CDNs
+      const response = await fetch("http://localhost:4000/api/download-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl: imgUrl, filename, sourceUrl: url })
+      });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = downloadUrl;
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(downloadUrl);
       setStatus("ready");
     } catch (e: any) {
       console.error(e);
       setStatus("idle");
-      setErrorMsg("Failed to download image");
+      setErrorMsg("Failed to download image. The image may be access-restricted.");
     }
   };
 

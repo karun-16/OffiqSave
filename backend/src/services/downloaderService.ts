@@ -35,10 +35,22 @@ export class DownloaderService {
     }
 
     static async getMediaInfo(rawUrl: string): Promise<MediaInfo> {
-        await this.checkYtDlpVersion();
-        const url = cleanUrl(rawUrl);
-        const handler = HandlerFactory.getHandler(url);
-        return handler.getInfo(url);
+        try {
+            console.log('[downloaderService.ts] Inside DownloaderService.getMediaInfo()');
+            await this.checkYtDlpVersion();
+            const url = cleanUrl(rawUrl);
+            
+            console.log('[downloaderService.ts] Before HandlerFactory');
+            const handler = HandlerFactory.getHandler(url);
+            console.log('[downloaderService.ts] After handler creation, handler type:', handler.constructor.name);
+            
+            console.log('[downloaderService.ts] Before handler.getInfo()');
+            return await handler.getInfo(url);
+        } catch (error: any) {
+            console.error('[downloaderService.ts] Error inside catch block:', error);
+            console.error(error.stack);
+            throw error;
+        }
     }
 
     static async downloadMedia(rawUrl: string, formatId: string): Promise<string> {

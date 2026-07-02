@@ -5,8 +5,10 @@ import fs from 'fs';
 import { ensureDir } from '../../utils/cleanup';
 import { MediaInfo } from '../downloaderService';
 import NodeCache from 'node-cache';
+import { ExtractionRouter } from '../ExtractionRouter';
+import { ExtractionResult } from '../types';
 
-const metaCache = new NodeCache({ stdTTL: 600 });
+export const metaCache = new NodeCache({ stdTTL: 600 });
 
 const TMP_DIR = path.join(process.cwd(), 'tmp');
 const COOKIES_FILE = path.join(process.cwd(), 'cookies.txt');
@@ -16,6 +18,20 @@ let ytDlpVersion = 'Unknown';
 exec('--version').then((res: any) => {
     if (res && res.stdout) ytDlpVersion = res.stdout.trim();
 }).catch(() => {});
+
+export function pipelineLog(platform: string, urlType: string, classifierRes: string, extractor: string, nativeSuccess: string, ytdlpUsed: string, downloadMethod: string, timeMs: number, result: string) {
+    console.log(`\n==============================`);
+    console.log(`Platform: ${platform}`);
+    console.log(`URL Type: ${urlType}`);
+    console.log(`Classifier: ${classifierRes}`);
+    console.log(`Extractor: ${extractor}`);
+    console.log(`Native Success: ${nativeSuccess}`);
+    console.log(`yt-dlp Used: ${ytdlpUsed}`);
+    console.log(`Download Method: ${downloadMethod}`);
+    console.log(`Execution Time: ${timeMs}ms`);
+    console.log(`Result: ${result}`);
+    console.log(`==============================\n`);
+}
 
 export abstract class BaseHandler {
     protected platformName: string = 'Generic';
@@ -50,109 +66,104 @@ export abstract class BaseHandler {
     async getInfo(rawUrl: string): Promise<MediaInfo> {
         const url = this.normalizeUrl(rawUrl);
         const startTime = performance.now();
-        this.log(`[Profiler] URL Validation/Normalization: ${performance.now() - startTime}ms`);
-        
+
         const cached = metaCache.get<MediaInfo>(url);
         if (cached) {
-            this.log(`[Profiler] Metadata Cache Hit: ${performance.now() - startTime}ms`);
+            this.log(`[Profiler] Metadata Cache Hit: ${(performance.now() - startTime).toFixed(0)}ms`);
             return cached;
         }
 
         this.log(`Platform detected: ${this.platformName}`);
 
-        // 1. Try Native Extraction first
-        const nativeStart = performance.now();
-        try {
-            const nativeInfo = await this.tryNativeExtraction(url);
-            if (nativeInfo) {
-                const timeStr = (performance.now() - nativeStart).toFixed(0);
-                this.log(`[Pipeline] Platform: ${this.platformName} | Media: ${nativeInfo.mediaType} | Method: Native | Auth: False | Time: ${timeStr}ms | Result: SUCCESS`);
-                metaCache.set(url, nativeInfo);
-                return nativeInfo;
-            }
-        } catch (e: any) {
-            this.log(`[Pipeline] Native extraction failed, falling back to yt-dlp...`, e.message);
-        }
-        
+        // Route through new extraction pipeline
+        const extractionResult: ExtractionResult = await ExtractionRouter.route(url, this);
+
+        // Convert ExtractionResult -> MediaInfo
+        const info: MediaInfo = {
+            title: extractionResult.title || 'Unknown Title',
+            thumbnail: extractionResult.thumbnail || '',
+            duration: extractionResult.duration || 0,
+            platform: this.platformName,
+            uploader: extractionResult.author || undefined,
+            formats: extractionResult.formats || [],
+            mediaType: extractionResult.mediaType.toLowerCase() as any,
+            images: extractionResult.images
+        };
+
+        metaCache.set(url, info);
+        return info;
+    }
+
+    async extractWithYtDlp(url: string): Promise<ExtractionResult> {
+        const startTime = performance.now();
         const baseOptions = {
             dumpSingleJson: true,
             noWarnings: true,
             noCheckCertificate: true,
             noPlaylist: true,
-            skipDownload: true, // Reduce metadata fetch time
+            skipDownload: true,
             ...this.getExtraOptions(),
         };
 
         let retryCount = 1;
-        let unsupportedUrl = false;
         const tryExtract = async (opts: any, label: string) => {
-            const startEx = performance.now();
             try {
                 const info = await this.extract(url, opts);
-                this.log(`[Pipeline] Platform: ${this.platformName} | Media: ${info.mediaType} | Method: yt-dlp (${label}) | Auth: ${label !== 'Normal' && label !== 'User-Agent'} | Time: ${(performance.now() - startEx).toFixed(0)}ms | Result: SUCCESS`);
                 return info;
             } catch (e: any) {
-                const errMsg = e.stderr || e.message || '';
-                this.error(`Attempt ${retryCount} failed. ${label} stderr:\n`, errMsg);
-                if (errMsg.toLowerCase().includes('unsupported url')) {
-                    unsupportedUrl = true;
-                }
                 return null;
             }
         };
 
-        this.log(`Attempt ${retryCount}: Normal extraction...`);
         let info = await tryExtract(baseOptions, 'Normal');
-        if (info) { metaCache.set(url, info); return info; }
+        if (info) return this.mapYtDlpToExtractionResult(info);
 
-        if (unsupportedUrl) {
-            this.error(`[Pipeline] URL is unsupported by yt-dlp. Aborting retries.`);
-            throw new Error("This media couldn't be extracted because the URL is unsupported.");
-        }
-
-        retryCount++;
-        this.log(`Attempt ${retryCount}: Normal with Custom User-Agent...`);
         info = await tryExtract({
             ...baseOptions,
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }, 'User-Agent');
-        if (info) { metaCache.set(url, info); return info; }
+        if (info) return this.mapYtDlpToExtractionResult(info);
 
-        // Optimized Auth: cookies.txt FIRST
-        retryCount++;
         const cookiesExist = fs.existsSync(COOKIES_FILE);
         if (cookiesExist) {
-            this.log(`Attempt ${retryCount}: Using cookies.txt...`);
             info = await tryExtract({ ...baseOptions, cookies: COOKIES_FILE }, 'cookies.txt');
-            if (info) { metaCache.set(url, info); return info; }
-        } else {
-            this.log(`Attempt ${retryCount}: cookies.txt not found. Skipping.`);
+            if (info) return this.mapYtDlpToExtractionResult(info);
         }
 
         for (const browser of BROWSERS) {
-            retryCount++;
-            this.log(`Attempt ${retryCount}: Browser selected: ${browser}`);
             info = await tryExtract({ ...baseOptions, cookiesFromBrowser: browser }, browser);
-            if (info) { metaCache.set(url, info); return info; }
+            if (info) return this.mapYtDlpToExtractionResult(info);
         }
 
-        const duration = performance.now() - startTime;
-        this.error(`[Pipeline] Platform: ${this.platformName} | Method: yt-dlp | Result: FAILURE | Retries: ${retryCount} | Time: ${duration.toFixed(0)}ms`);
         throw new Error("This media couldn't be accessed. It may require authentication, be private, or the platform has temporarily restricted access.");
     }
 
-    protected async tryNativeExtraction(url: string): Promise<MediaInfo | null> {
-        return null;
+    private mapYtDlpToExtractionResult(info: MediaInfo): ExtractionResult {
+        return {
+            mediaType: info.mediaType === 'image' ? 'IMAGE' : info.mediaType === 'gallery' ? 'GALLERY' : 'VIDEO',
+            title: info.title,
+            author: info.uploader || '',
+            thumbnail: info.thumbnail,
+            images: info.images,
+            formats: info.formats,
+            duration: info.duration,
+            source: 'yt-dlp'
+        };
     }
 
     async download(rawUrl: string, formatId: string): Promise<string> {
         const url = this.normalizeUrl(rawUrl);
         ensureDir(TMP_DIR);
+
+        if (formatId === 'image' || formatId === 'original') {
+            return this.downloadImageDirect(url);
+        }
+
         const fileId = uuidv4();
         const outputTemplate = path.join(TMP_DIR, `${fileId}.%(ext)s`);
 
-        const formatString = formatId.includes('audio') 
-            ? formatId 
+        const formatString = formatId.includes('audio')
+            ? formatId
             : `${formatId}+bestaudio/${formatId}/best`;
 
         const baseOptions = {
@@ -170,7 +181,7 @@ export abstract class BaseHandler {
 
         try {
             const res = await this.executeDownload(url, baseOptions, fileId);
-            this.log(`Download Success: ${performance.now() - startTime}ms`);
+            this.log(`Download Success: ${(performance.now() - startTime).toFixed(0)}ms`);
             return res;
         } catch (e: any) {
             this.error(`Download failed. stderr:\n`, e.stderr || e.message);
@@ -178,28 +189,61 @@ export abstract class BaseHandler {
                 this.log(`Retrying download with browser cookies: ${browser}`);
                 try {
                     const res = await this.executeDownload(url, { ...baseOptions, cookiesFromBrowser: browser }, fileId);
-                    this.log(`Download Success with ${browser}: ${performance.now() - startTime}ms`);
+                    this.log(`Download Success with ${browser}: ${(performance.now() - startTime).toFixed(0)}ms`);
                     return res;
-                } catch (err: any) {
-                    this.error(`Retry failed with ${browser}. stderr:\n`, err.stderr || err.message);
-                }
+                } catch (err: any) {}
             }
-            this.log(`Backend working directory (process.cwd()): ${process.cwd()}`);
-            this.log(`Looking for cookies: ${COOKIES_FILE}`);
-            const cookiesExist = fs.existsSync(COOKIES_FILE);
-            this.log(`fs.existsSync() result: ${cookiesExist}`);
-
-            if (cookiesExist) {
-                this.log(`Retrying download with cookies.txt...`);
+            if (fs.existsSync(COOKIES_FILE)) {
                 try {
                     const res = await this.executeDownload(url, { ...baseOptions, cookies: COOKIES_FILE }, fileId);
-                    this.log(`Download Success with cookies.txt: ${performance.now() - startTime}ms`);
                     return res;
-                } catch (err: any) {
-                    this.error(`Retry failed with cookies.txt. stderr:\n`, err.stderr || err.message);
-                }
+                } catch (err: any) {}
             }
             throw new Error("This media couldn't be downloaded due to platform restrictions.");
+        }
+    }
+
+    async downloadImageDirect(imageUrl: string): Promise<string> {
+        ensureDir(TMP_DIR);
+        const fileId = uuidv4();
+
+        let ext = imageUrl.match(/\.([a-zA-Z0-9]{2,5})(?:\?.*)?$/)?.[1]?.toLowerCase() || '';
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30_000);
+
+        try {
+            const response = await fetch(imageUrl, {
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                    'Accept': 'image/*,*/*;q=0.8',
+                    'Referer': new URL(imageUrl).origin
+                }
+            });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const contentType = response.headers.get('content-type') || '';
+            if (!ext) {
+                if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = 'jpg';
+                else if (contentType.includes('png')) ext = 'png';
+                else if (contentType.includes('gif')) ext = 'gif';
+                else if (contentType.includes('webp')) ext = 'webp';
+                else if (contentType.includes('avif')) ext = 'avif';
+                else if (contentType.includes('bmp')) ext = 'bmp';
+                else if (contentType.includes('svg')) ext = 'svg';
+                else ext = 'jpg';
+            }
+
+            const filePath = path.join(TMP_DIR, `${fileId}.${ext}`);
+            const arrayBuffer = await response.arrayBuffer();
+            fs.writeFileSync(filePath, Buffer.from(arrayBuffer));
+
+            this.log(`Image downloaded directly: ${filePath}`);
+            return filePath;
+        } finally {
+            clearTimeout(timeout);
         }
     }
 
@@ -222,26 +266,19 @@ export abstract class BaseHandler {
                 };
             }).filter((i: any) => i.url);
             
-            if (images.length === 1) {
-                mediaType = 'image';
-            }
+            if (images.length === 1) mediaType = 'image';
         } else if (output.vcodec === 'none' && output.acodec !== 'none') {
             mediaType = 'audio';
         } else if (
             (output.formats && !output.formats.some((f: any) => f.vcodec !== 'none' && f.vcodec !== 'mjpeg' && f.acodec !== 'none')) && 
             (output.ext && !['mp4', 'webm', 'mkv', 'm4a', 'mp3'].includes(output.ext.toLowerCase())) ||
-            (output.ext && ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(output.ext.toLowerCase()))
+            (output.ext && ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'bmp'].includes(output.ext.toLowerCase()))
         ) {
-            // It's an image
             mediaType = 'image';
             const imgUrl = output.url || (output.thumbnails && output.thumbnails.length > 0 ? output.thumbnails[output.thumbnails.length - 1].url : '');
             if (imgUrl) {
                 images = [{
-                    id: output.id || 'img',
-                    url: imgUrl,
-                    width: output.width,
-                    height: output.height,
-                    format: output.ext || 'jpg'
+                    id: output.id || 'img', url: imgUrl, width: output.width, height: output.height, format: output.ext || 'jpg'
                 }];
             }
         } else {
@@ -265,22 +302,13 @@ export abstract class BaseHandler {
         return new Promise((resolve, reject) => {
             const process = exec(url, options);
             let stderrStr = '';
-            
-            if (process.stderr) {
-                process.stderr.on('data', (data) => {
-                    stderrStr += data.toString();
-                });
-            }
-
+            if (process.stderr) process.stderr.on('data', (data) => { stderrStr += data.toString(); });
             process.on('close', (code: number) => {
                 if (code === 0) {
                     const files = fs.readdirSync(TMP_DIR);
                     const downloadedFile = files.find(f => f.startsWith(fileId) && !f.endsWith('.part'));
-                    if (downloadedFile) {
-                        resolve(path.join(TMP_DIR, downloadedFile));
-                    } else {
-                        reject({ message: 'Downloaded file not found', stderr: stderrStr });
-                    }
+                    if (downloadedFile) resolve(path.join(TMP_DIR, downloadedFile));
+                    else reject({ message: 'Downloaded file not found', stderr: stderrStr });
                 } else {
                     reject({ message: 'Download process failed', stderr: stderrStr });
                 }

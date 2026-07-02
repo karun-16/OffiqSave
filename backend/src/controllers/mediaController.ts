@@ -1,37 +1,47 @@
 import { Request, Response } from 'express';
 import { DownloaderService } from '../services/downloaderService';
 import { cleanupFile } from '../utils/cleanup';
+import { HandlerFactory } from '../services/handlers/HandlerFactory';
 import fs from 'fs';
 import path from 'path';
 const archiver = require('archiver');
 
+// ─── /api/info ───────────────────────────────────────────────────────────────
+
 export const info = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { url } = req.body;
-        if (!url) {
-            res.status(400).json({ error: 'URL is required' });
+        console.log('[mediaController.ts] Controller entry: info()');
+        console.log('[mediaController.ts] Before validation');
+        const url = req.body?.url;
+        if (!url || typeof url !== 'string') {
+            res.status(400).json({ error: 'Valid URL string is required' });
             return;
         }
+        console.log('[mediaController.ts] After validation, URL:', url);
 
+        console.log('[mediaController.ts] Before DownloaderService.getMediaInfo()');
         const mediaInfo = await DownloaderService.getMediaInfo(url);
         res.json(mediaInfo);
     } catch (error: any) {
-        console.error('Info Error:', error);
+        console.error('[mediaController.ts] Info Error inside catch block:', error);
+        console.error(error.stack);
         res.status(500).json({ error: error.message || 'Failed to fetch media' });
     }
 };
 
+// ─── /api/download ───────────────────────────────────────────────────────────
+
 export const download = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { url, formatId } = req.body;
-        if (!url || !formatId) {
-            res.status(400).json({ error: 'URL and formatId are required' });
+        const url = req.body?.url;
+        const formatId = req.body?.formatId;
+        if (!url || typeof url !== 'string' || !formatId) {
+            res.status(400).json({ error: 'Valid URL and formatId are required' });
             return;
         }
 
         const downloadedFilePath = await DownloaderService.downloadMedia(url, formatId);
 
-        // Stream file to client and cleanup
         res.download(downloadedFilePath, (err) => {
             if (err) {
                 console.error('[Controller] Download stream error:', err);
@@ -44,11 +54,55 @@ export const download = async (req: Request, res: Response): Promise<void> => {
     }
 };
 
+// ─── /api/download-image ─────────────────────────────────────────────────────
+// Downloads a single image via server-side fetch and streams it to the client.
+// This avoids CORS issues when the frontend tries to fetch restricted image URLs.
+
+export const downloadImage = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { imageUrl, filename, sourceUrl } = req.body;
+        if (!imageUrl) {
+            res.status(400).json({ error: 'imageUrl is required' });
+            return;
+        }
+
+        // Use the handler's direct image downloader
+        const handler = sourceUrl ? HandlerFactory.getHandler(sourceUrl) : HandlerFactory.getHandler(imageUrl);
+        const filePath = await handler.downloadImageDirect(imageUrl);
+
+        const ext = path.extname(filePath).replace('.', '') || 'jpg';
+        const safeFilename = filename || `image.${ext}`;
+
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+        res.setHeader('Content-Type', `image/${ext === 'jpg' ? 'jpeg' : ext}`);
+
+        const stream = fs.createReadStream(filePath);
+        stream.pipe(res);
+        stream.on('end', () => cleanupFile(filePath));
+        stream.on('error', (err) => {
+            console.error('[Controller] Image stream error:', err);
+            cleanupFile(filePath);
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Failed to stream image' });
+            }
+        });
+    } catch (error: any) {
+        console.error('[Controller] Download-image error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: error.message || 'Failed to download image' });
+        }
+    }
+};
+
+// ─── /api/convert ────────────────────────────────────────────────────────────
+
 export const convert = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { url, formatId, targetFormat } = req.body;
-        if (!url || !formatId || !targetFormat) {
-            res.status(400).json({ error: 'URL, formatId, and targetFormat are required' });
+        const url = req.body?.url;
+        const formatId = req.body?.formatId;
+        const targetFormat = req.body?.targetFormat;
+        if (!url || typeof url !== 'string' || !formatId || !targetFormat) {
+            res.status(400).json({ error: 'Valid URL string, formatId, and targetFormat are required' });
             return;
         }
 
@@ -62,7 +116,6 @@ export const convert = async (req: Request, res: Response): Promise<void> => {
             cleanupFile(downloadedFilePath);
         }
 
-        // 3. Stream converted file to client and cleanup
         res.download(finalFilePath, (err) => {
             if (err) {
                 console.error('[Controller] Conversion stream error:', err);
@@ -76,9 +129,11 @@ export const convert = async (req: Request, res: Response): Promise<void> => {
     }
 };
 
+// ─── /api/download-zip ───────────────────────────────────────────────────────
+
 export const downloadZip = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { images } = req.body;
+        const { images, sourceUrl } = req.body;
         if (!images || !Array.isArray(images) || images.length === 0) {
             res.status(400).json({ error: 'Array of images is required' });
             return;
@@ -87,7 +142,7 @@ export const downloadZip = async (req: Request, res: Response): Promise<void> =>
         res.setHeader('Content-Type', 'application/zip');
         res.setHeader('Content-Disposition', 'attachment; filename="gallery.zip"');
 
-        const archive = archiver('zip', { zlib: { level: 9 } });
+        const archive = archiver('zip', { zlib: { level: 6 } });
         
         archive.on('error', (err: any) => {
             throw err;
@@ -95,26 +150,40 @@ export const downloadZip = async (req: Request, res: Response): Promise<void> =>
 
         archive.pipe(res);
 
+        const handler = sourceUrl ? HandlerFactory.getHandler(sourceUrl) : null;
+
         for (let i = 0; i < images.length; i++) {
             const img = images[i];
             try {
-                const response = await fetch(img.url);
-                if (response.ok && response.body) {
-                    const ext = img.format || 'jpg';
+                if (handler) {
+                    // Use server-side download to avoid CORS issues
+                    const filePath = await handler.downloadImageDirect(img.url);
+                    const ext = path.extname(filePath).replace('.', '') || img.format || 'jpg';
                     const name = img.filename || `image-${i + 1}.${ext}`;
-                    
-                    // We need to fetch it as ArrayBuffer to append to archiver
-                    const arrayBuffer = await response.arrayBuffer();
-                    const buffer = Buffer.from(arrayBuffer);
-                    
+                    const buffer = fs.readFileSync(filePath);
                     archive.append(buffer, { name });
+                    cleanupFile(filePath);
+                } else {
+                    // Fallback: direct fetch
+                    const response = await fetch(img.url, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        }
+                    });
+                    if (response.ok && response.body) {
+                        const ext = img.format || 'jpg';
+                        const name = img.filename || `image-${i + 1}.${ext}`;
+                        const arrayBuffer = await response.arrayBuffer();
+                        const buffer = Buffer.from(arrayBuffer);
+                        archive.append(buffer, { name });
+                    }
                 }
             } catch (err) {
-                console.error(`Failed to fetch image ${img.url}`, err);
+                console.error(`[Controller] Failed to fetch image ${i + 1} for ZIP: ${img.url}`, err);
             }
         }
 
-        archive.finalize();
+        await archive.finalize();
     } catch (error: any) {
         console.error('[Controller] Zip error:', error);
         if (!res.headersSent) {
