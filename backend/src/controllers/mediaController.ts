@@ -4,7 +4,7 @@ import { cleanupFile } from '../utils/cleanup';
 import { HandlerFactory } from '../services/handlers/HandlerFactory';
 import fs from 'fs';
 import path from 'path';
-const archiver = require('archiver');
+
 
 // ─── /api/info ───────────────────────────────────────────────────────────────
 
@@ -142,7 +142,8 @@ export const downloadZip = async (req: Request, res: Response): Promise<void> =>
         res.setHeader('Content-Type', 'application/zip');
         res.setHeader('Content-Disposition', 'attachment; filename="gallery.zip"');
 
-        const archive = archiver('zip', { zlib: { level: 6 } });
+        const { ZipArchive } = require('archiver');
+        const archive = new ZipArchive({ zlib: { level: 6 } });
         
         archive.on('error', (err: any) => {
             throw err;
