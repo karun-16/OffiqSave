@@ -1,15 +1,63 @@
 # OffiqSave
 
-OffiqSave is a premium SaaS-quality universal media downloader and converter.
+OffiqSave is a premium, high-performance universal media downloader and converter web application.
+
+---
+
+## 🚀 Recent Updates & Features
+
+### ⚡ Native Instagram Extraction Engine
+- **Standalone Instagram Reel Extractor (`InstagramReelExtractor`)**:
+  - Native parsing for Instagram Reels and TV URLs (`/reel/`, `/reels/`, `/tv/`).
+  - Fetches public page HTML and parses `ScheduledServerJS` & `__bbox` JSON structures.
+  - Implements recursive object traversal to locate high-resolution MP4 video candidates.
+  - Completely bypasses `yt-dlp` for Reel extraction and streams direct CDN MP4 URLs via HTTP GET.
+- **Refactored Instagram Post Extractor (`InstagramExtractor`)**:
+  - Replaced legacy fixed-path parser with a recursive JSON walker over `ScheduledServerJS` & `__bbox` data structures.
+  - Implements `extractPolarisMedia` supporting:
+    - **Single Images**: High-resolution `image_versions2.candidates[0]` extraction.
+    - **Carousels**: Full multi-item `carousel_media[]` parsing.
+    - **Videos**: Direct `video_versions` extraction.
+- **Smart Extraction Router (`ExtractionRouter`)**:
+  - Classifies incoming Instagram URLs by path type (`reel`, `tv`, `post`).
+  - Routes Reel/TV requests directly to `InstagramReelExtractor` and Post requests to `InstagramExtractor`.
+  - Detailed pipeline logging: `[Router] URL`, `[Router] Path Type`, `[Router] Selected Extractor`.
+- **Direct CDN Streaming Download Pipeline**:
+  - Download endpoint (`/api/download`) streams native CDN video and image URLs directly via Node.js web streams with `Content-Disposition: attachment`.
+  - Zero unnecessary `yt-dlp` invocations for native Instagram extractions.
+
+### 🎨 Frontend & UI Improvements
+- **Fixed-Width Download Card Layout**:
+  - Card container bounded at `max-w-4xl` with `items-stretch`.
+  - Preview thumbnail column locked to fixed `300px` width (`w-[300px] min-w-[300px] max-w-[300px] shrink-0`), preventing long captions from resizing the preview image.
+  - Right content flex container uses `min-w-0 overflow-hidden` with `line-clamp-2` on post captions to ensure long hashtags wrap without distorting card dimensions.
+  - Controls panel pinned to the bottom of the card (`mt-auto`).
+- **Clean Quality Selector**:
+  - Automatically formats native single MP4 options as `"Best Quality"`.
+
+---
 
 ## Prerequisites
-- Node.js (v18 or higher)
-- **FFmpeg**: Must be installed and available in your system PATH.
-- **yt-dlp**: `yt-dlp-exec` manages its own binary, but having python/yt-dlp on system is beneficial.
+- **Node.js**: v18 or higher
+- **FFmpeg**: Installed and available in your system `PATH`.
+- **yt-dlp**: Installed or managed via `yt-dlp-exec`.
+
+---
 
 ## Project Structure
-- `/frontend` - Next.js 15 App Router, React 19, Tailwind CSS v4, Framer Motion
-- `/backend` - Node.js Express Server, fluent-ffmpeg, yt-dlp-exec
+```
+OffiqSave/
+├── frontend/             # Next.js 15 App Router, React 19, Tailwind CSS v4, Framer Motion
+├── backend/              # Node.js Express Server, fluent-ffmpeg, Native Extractors
+│   ├── src/
+│   │   ├── controllers/  # mediaController (info, download, convert)
+│   │   ├── extractors/   # InstagramReelExtractor
+│   │   ├── services/     # ExtractionRouter, MediaClassifier, DownloaderService
+│   │   │   ├── extractors/  # InstagramExtractor, NativeReelExtractor
+│   │   │   └── handlers/    # PlatformHandlers, BaseHandler
+```
+
+---
 
 ## Quick Start
 
@@ -19,57 +67,44 @@ cd backend
 npm install
 npm run dev
 ```
-The backend runs on `http://localhost:4000`.
+The backend server runs on `http://localhost:4000`.
 
 ### 2. Start the Frontend
-In a new terminal:
+In a separate terminal window:
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-The frontend runs on `http://localhost:3000`.
+The frontend application runs on `http://localhost:3000`.
 
-Open your browser to `http://localhost:3000`.
+Open your browser and navigate to `http://localhost:3000`.
 
-## Architecture Details
-- **Frontend**: Utilizes Next.js App Router for optimal performance. Glassmorphism UI is achieved using Tailwind CSS v4. Animations are powered by Framer Motion. The UI dynamically adapts its layout depending on the exact media type returned (Video, Audio, Single Image, or Gallery/Carousel).
-- **Backend**: Exposes `/api/info`, `/api/download`, and `/api/convert`. It features a **Universal Media Extraction Engine** leveraging native platform scraping (via OpenGraph/JSON) for images and carousels, falling back to `yt-dlp` for complex video resolution and audio merging. Downloaded videos and audio are processed via `FFmpeg` and files are automatically cleaned up immediately after being streamed to the client.
+---
 
-## Features Built
-- Universal Media Extraction: Natively supports fetching Single Images, Galleries (ZIP downloads), Videos, and Audio seamlessly from a single input field.
-- Advanced Platform Support: Instagram, Reddit, Facebook, Pinterest, YouTube, TikTok, Vimeo, Dailymotion, Twitter (X), Telegram, Terabox, and generic URLs.
-- Robust Authentication & Fallback: Implements intelligent multi-layered cookie retries via `yt-dlp` alongside blazing fast native JSON scraping.
-- Beautiful glassmorphism UI with brand gradient `#2563EB`, `#3B82F6`, `#06B6D4`.
-- Smart Input Validation & Adaptive State Management (Fetching -> Download/Convert -> Done).
-- Format and quality selectors parsed directly from media metadata.
-- Secure temporary file cleanup (without disk-buffering memory exhaustion).
-- Responsive layout across all screen sizes.
+## Architecture Overview
+
+1. **Routing & Classification**:
+   - `MediaClassifier` detects the target platform and expected media type from the URL.
+   - `ExtractionRouter` checks path types and invokes dedicated native extractors before falling back to `yt-dlp`.
+
+2. **Native Scraping & Extraction**:
+   - `InstagramReelExtractor` & `InstagramExtractor` fetch page HTML with modern Chrome headers.
+   - Script blocks containing `ScheduledServerJS` and `__bbox` JSON are parsed using recursive AST-style object walkers.
+   - Resolves direct CDN media URLs (`.mp4`, `.jpg`).
+
+3. **Direct Streaming Download**:
+   - Native media downloads are streamed directly from CDN sources to the client browser via Express response piping with clean filenames (`Content-Disposition: attachment`).
+
+---
 
 ## Authentication (`cookies.txt`)
 
-Many platforms (e.g., Instagram, Pinterest, Facebook) restrict access to private posts, stories, or rate-limit unauthenticated scraping. OffiqSave supports passing session cookies via a `cookies.txt` file to authenticate both native extractors and `yt-dlp`.
+For private posts, stories, or rate-limited platforms, OffiqSave supports passing session cookies:
 
-### How to use `cookies.txt`:
-
-1. **Install a Cookie Exporter Extension**:
-   Install a browser extension like [Get cookies.txt LOCALLY](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/ccpbcjhhhooidlmnddgedmencbbajbmg) (Chrome) or [Export Cookies](https://addons.mozilla.org/en-US/firefox/addon/export-cookies-txt/) (Firefox).
-
-2. **Log into the Platform**:
-   Open a new tab, navigate to the target platform (e.g., `instagram.com`), and log into your account.
-
-3. **Export Cookies**:
-   While on the platform's tab, click the extension icon and export the cookies in Netscape format.
-
-4. **Place the File**:
-   Rename the downloaded file to `cookies.txt` and place it directly inside the `backend/` directory of the project:
+1. Export cookies from your browser using a Netscape-formatted cookie exporter extension (e.g., *Get cookies.txt LOCALLY*).
+2. Save the file as `cookies.txt` inside the `backend/` directory:
    ```
-   OffiqSave/
-   ├── backend/
-   │   ├── src/
-   │   ├── package.json
-   │   └── cookies.txt      <-- Place it here
+   OffiqSave/backend/cookies.txt
    ```
-
-5. **Automatic Detection**:
-   The backend will automatically detect the presence of `backend/cookies.txt`. If an unauthenticated request fails, the `BaseHandler` will automatically retry the extraction and download using the provided cookies, successfully downloading private media and stories.
+3. The backend will automatically pass `cookies.txt` on fallback requests.
