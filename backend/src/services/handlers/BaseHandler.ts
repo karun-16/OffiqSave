@@ -96,6 +96,8 @@ export abstract class BaseHandler {
 
     async extractWithYtDlp(url: string): Promise<ExtractionResult> {
         const startTime = performance.now();
+        const isInstagram = this.platformName === 'Instagram';
+
         const baseOptions = {
             dumpSingleJson: true,
             noWarnings: true,
@@ -105,34 +107,129 @@ export abstract class BaseHandler {
             ...this.getExtraOptions(),
         };
 
-        let retryCount = 1;
-        const tryExtract = async (opts: any, label: string) => {
+        const tryStage = async (stageNum: number, label: string, opts: any): Promise<ExtractionResult | null> => {
+            const stageStart = performance.now();
+            console.log(`\n========================================`);
+            console.log(`[yt-dlp Pipeline Stage ${stageNum}] ${label}`);
+            console.log(`Stage number: ${stageNum}`);
+            console.log(`yt-dlp command: yt-dlp ${url} ${JSON.stringify(opts)}`);
+            console.log(`arguments:`, JSON.stringify(opts, null, 2));
+
             try {
                 const info = await this.extract(url, opts);
-                return info;
+                const elapsed = Math.round(performance.now() - stageStart);
+                const resJsonStr = JSON.stringify(info);
+                
+                console.log(`stdout: JSON parsed successfully. Title: "${info.title}", Formats: ${info.formats?.length || 0}`);
+                console.log(`stderr: (none)`);
+                console.log(`exit code: 0`);
+                console.log(`response size: ${resJsonStr.length} bytes`);
+                console.log(`time taken: ${elapsed}ms`);
+                console.log(`Result: STAGE ${stageNum} SUCCESS\n========================================\n`);
+
+                return this.mapYtDlpToExtractionResult(info);
             } catch (e: any) {
+                const elapsed = Math.round(performance.now() - stageStart);
+                const stderr = e.stderr || e.message || '';
+                const exitCode = e.code !== undefined ? e.code : 'unknown';
+
+                console.log(`stdout: (none)`);
+                console.log(`stderr: ${stderr.trim()}`);
+                console.log(`exit code: ${exitCode}`);
+                console.log(`response size: 0 bytes`);
+                console.log(`time taken: ${elapsed}ms`);
+                console.log(`Result: STAGE ${stageNum} FAILED\n========================================\n`);
+
                 return null;
             }
         };
 
-        let info = await tryExtract(baseOptions, 'Normal');
-        if (info) return this.mapYtDlpToExtractionResult(info);
+        // Stage 1: Minimal yt-dlp options (no custom headers, no forced UA, no cookies)
+        let result = await tryStage(1, 'Minimal Options', baseOptions);
+        if (result) return result;
 
-        info = await tryExtract({
+        // Stage 2: Mobile User-Agent
+        result = await tryStage(2, 'Mobile User-Agent', {
             ...baseOptions,
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }, 'User-Agent');
-        if (info) return this.mapYtDlpToExtractionResult(info);
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+        });
+        if (result) return result;
 
-        const cookiesExist = fs.existsSync(COOKIES_FILE);
-        if (cookiesExist) {
-            info = await tryExtract({ ...baseOptions, cookies: COOKIES_FILE }, 'cookies.txt');
-            if (info) return this.mapYtDlpToExtractionResult(info);
+        // Stage 3: cookies.txt if available
+        if (fs.existsSync(COOKIES_FILE)) {
+            result = await tryStage(3, 'cookies.txt', {
+                ...baseOptions,
+                cookies: COOKIES_FILE
+            });
+            if (result) return result;
         }
 
+        // Stage 4: cookies-from-browser
         for (const browser of BROWSERS) {
-            info = await tryExtract({ ...baseOptions, cookiesFromBrowser: browser }, browser);
-            if (info) return this.mapYtDlpToExtractionResult(info);
+            result = await tryStage(4, `cookies-from-browser (${browser})`, {
+                ...baseOptions,
+                cookiesFromBrowser: browser
+            });
+            if (result) return result;
+        }
+
+        // Stage 5: Browser impersonation (if available)
+        try {
+            result = await tryStage(5, 'Impersonate Chrome', {
+                ...baseOptions,
+                impersonate: 'chrome'
+            });
+            if (result) return result;
+        } catch (e) {}
+
+        // STEP 5: IF ALL YT-DLP ATTEMPTS FAIL
+        if (isInstagram) {
+            const isReelUrl = url.includes('/reel/') || url.includes('/reels/') || url.includes('/tv/');
+            if (isReelUrl) {
+                console.log(`\n[STEP 5 FALLBACK] All yt-dlp stages failed/empty for Instagram Reel.`);
+                console.log(`Executing native Reel metadata extraction...`);
+
+                try {
+                    const { instagramReelExtractor } = require('../../extractors/instagram/InstagramReelExtractor');
+                    const reelResult = await instagramReelExtractor.extract(url);
+                    if (reelResult && reelResult.videoUrl) {
+                        console.log(`[STEP 5 FALLBACK] ✅ Native Reel metadata extraction SUCCESS!`);
+                        return {
+                            mediaType: 'VIDEO',
+                            title: reelResult.title || 'Instagram Reel',
+                            author: reelResult.author || '',
+                            thumbnail: reelResult.thumbnail || '',
+                            duration: reelResult.duration || 0,
+                            formats: [
+                                {
+                                    format_id: 'mp4_best',
+                                    url: reelResult.videoUrl,
+                                    ext: 'mp4',
+                                    vcodec: 'h264',
+                                    acodec: 'aac',
+                                    format_note: 'MP4'
+                                }
+                            ],
+                            source: 'InstagramReelExtractor'
+                        };
+                    }
+                } catch (nativeErr: any) {
+                    console.log(`[STEP 5 FALLBACK] Native Reel extraction error: ${nativeErr.message}`);
+                }
+            } else {
+                console.log(`\n[STEP 5 FALLBACK] All yt-dlp stages failed/empty for Instagram Post.`);
+                console.log(`Executing native Instagram image/carousel extraction...`);
+                try {
+                    const { InstagramExtractor } = require('../extractors/InstagramExtractor');
+                    const nativeRes = await InstagramExtractor.extract(url);
+                    if (nativeRes && nativeRes.mediaType !== 'UNKNOWN') {
+                        console.log(`[STEP 5 FALLBACK] ✅ Native Instagram image extraction SUCCESS!`);
+                        return nativeRes;
+                    }
+                } catch (nativeErr: any) {
+                    console.log(`[STEP 5 FALLBACK] Native Instagram extraction error: ${nativeErr.message}`);
+                }
+            }
         }
 
         throw new Error("This media couldn't be accessed. It may require authentication, be private, or the platform has temporarily restricted access.");
@@ -213,16 +310,45 @@ export abstract class BaseHandler {
         const timeout = setTimeout(() => controller.abort(), 30_000);
 
         try {
+            // Read cookies if available
+            let cookieHeader = '';
+            if (fs.existsSync(COOKIES_FILE)) {
+                try {
+                    const content = fs.readFileSync(COOKIES_FILE, 'utf8');
+                    const lines = content.split('\n');
+                    const cookies = [];
+                    for (const line of lines) {
+                        if (line.startsWith('#') || !line.trim()) continue;
+                        const parts = line.split('\t');
+                        if (parts.length >= 7) {
+                            const domain = parts[0];
+                            if (domain.includes('instagram.com')) {
+                                cookies.push(`${parts[5]}=${parts[6].trim()}`);
+                            }
+                        }
+                    }
+                    if (cookies.length > 0) cookieHeader = cookies.join('; ');
+                } catch (e) {}
+            }
+
+            const headers: Record<string, string> = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                'Accept': 'image/*,*/*;q=0.8',
+                'Referer': new URL(imageUrl).origin
+            };
+            if (cookieHeader) headers['Cookie'] = cookieHeader;
+
             const response = await fetch(imageUrl, {
                 signal: controller.signal,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-                    'Accept': 'image/*,*/*;q=0.8',
-                    'Referer': new URL(imageUrl).origin
-                }
+                headers,
+                redirect: 'follow'
             });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            if (response.redirected) {
+                this.log(`Redirected during image download. Final URL: ${response.url}`);
+            }
 
             const contentType = response.headers.get('content-type') || '';
             if (!ext) {
@@ -238,9 +364,13 @@ export abstract class BaseHandler {
 
             const filePath = path.join(TMP_DIR, `${fileId}.${ext}`);
             const arrayBuffer = await response.arrayBuffer();
-            fs.writeFileSync(filePath, Buffer.from(arrayBuffer));
+            const buffer = Buffer.from(arrayBuffer);
+            fs.writeFileSync(filePath, buffer);
 
-            this.log(`Image downloaded directly: ${filePath}`);
+            const crypto = require('crypto');
+            const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+
+            this.log(`Image downloaded directly: ${filePath} (Size: ${buffer.length} bytes, SHA256: ${hash})`);
             return filePath;
         } finally {
             clearTimeout(timeout);

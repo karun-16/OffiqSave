@@ -1,5 +1,16 @@
-
 *.mp4
 *.mp3
 *.mkv
 *.webm
+debug/
+*.html
+ua_*.html
+ig_*.html
+ig_api.json
+test-*.js
+check-ytdlp.js
+search_all_urls.js
+debug_*.ts
+test_*.ts
+verify_*.ts
+cookies.txt

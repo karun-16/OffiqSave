@@ -2,19 +2,14 @@ import * as cheerio from 'cheerio';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ExtractionResult } from '../types';
-import { getHeadersForUrl } from './utils';
 
 const DEBUG_DIR = path.join(process.cwd(), 'debug');
-if (!fs.existsSync(DEBUG_DIR)) {
-    fs.mkdirSync(DEBUG_DIR, { recursive: true });
-}
 
 function saveDebugHtml(html: string) {
+    if (!fs.existsSync(DEBUG_DIR)) {
+        fs.mkdirSync(DEBUG_DIR, { recursive: true });
+    }
     fs.writeFileSync(path.join(DEBUG_DIR, 'runtime-instagram.html'), html);
-}
-
-function saveDebugJson(jsonStr: string) {
-    fs.writeFileSync(path.join(DEBUG_DIR, 'instagram.json'), jsonStr);
 }
 
 function normalizeUrl(urlStr: string): string {
@@ -31,580 +26,272 @@ function normalizeUrl(urlStr: string): string {
 export class InstagramExtractor {
     static async extract(rawUrl: string): Promise<ExtractionResult> {
         const url = normalizeUrl(rawUrl);
-        const startTime = performance.now();
-        
-        let result = await this.attemptExtract(url, false, startTime);
-        
-        if (result.mediaType === 'UNKNOWN') {
-            result = await this.attemptExtract(url, true, startTime);
+
+        let html = '';
+        try {
+            html = await this.fetchHtml(url);
+            saveDebugHtml(html);
+        } catch (err: any) {
+            throw new Error(`Unable to fetch Instagram media page: ${err.message}`);
         }
-        
-        if (result.mediaType === 'UNKNOWN') {
-            throw new Error(`Unable to extract Instagram media. It may be private or require authentication.`);
+
+        const $ = cheerio.load(html);
+        const ogTitle = $('meta[property="og:title"]').attr('content') || '';
+        const ogImage = $('meta[property="og:image"]').attr('content') || '';
+
+        const jsonObjects = this.discoverJsonBlocks(html);
+        const polarisResult = this.traverseJson(jsonObjects, ogTitle, ogImage);
+
+        if (polarisResult) {
+            return polarisResult;
         }
-        
+
+        // OpenGraph LAST fallback thumbnail/image
+        if (ogImage) {
+            return {
+                mediaType: 'IMAGE',
+                title: ogTitle || 'Instagram Post',
+                author: '',
+                thumbnail: ogImage,
+                images: [
+                    {
+                        id: 'ig-og',
+                        url: ogImage,
+                        downloadUrl: ogImage,
+                        format: 'jpg',
+                        filename: 'instagram_og.jpg',
+                        width: 0,
+                        height: 0
+                    }
+                ],
+                duration: 0,
+                source: 'Instagram'
+            };
+        }
+
+        throw new Error(`Unable to extract Instagram media. It may be private or require authentication.`);
+    }
+
+    private static async fetchHtml(targetUrl: string): Promise<string> {
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1'
+        };
+
+        const response = await fetch(targetUrl, {
+            method: 'GET',
+            headers,
+            redirect: 'follow'
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        }
+
+        return await response.text();
+    }
+
+    private static discoverJsonBlocks(html: string): any[] {
+        const jsonObjects: any[] = [];
+        const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+        let match: RegExpExecArray | null;
+
+        while ((match = scriptRegex.exec(html)) !== null) {
+            const scriptContent = match[1] ? match[1].trim() : '';
+            if (!scriptContent) continue;
+
+            if (
+                scriptContent.includes('ScheduledServerJS') ||
+                scriptContent.includes('__bbox') ||
+                scriptContent.includes('xig_polaris_media') ||
+                scriptContent.includes('image_versions2') ||
+                scriptContent.includes('carousel_media') ||
+                scriptContent.includes('video_versions')
+            ) {
+                try {
+                    const parsed = JSON.parse(scriptContent);
+                    jsonObjects.push(parsed);
+                    continue;
+                } catch (_) {}
+
+                const jsonSubmatches = scriptContent.match(/(\{[\s\S]*?\})/g);
+                if (jsonSubmatches) {
+                    for (const sub of jsonSubmatches) {
+                        if (
+                            sub.includes('xig_polaris_media') ||
+                            sub.includes('image_versions2') ||
+                            sub.includes('carousel_media') ||
+                            sub.includes('video_versions')
+                        ) {
+                            try {
+                                const parsedSub = JSON.parse(sub);
+                                jsonObjects.push(parsedSub);
+                            } catch (_) {}
+                        }
+                    }
+                }
+            }
+        }
+        return jsonObjects;
+    }
+
+    private static traverseJson(
+        jsonObjects: any[],
+        defaultTitle?: string,
+        defaultOgImage?: string
+    ): ExtractionResult | null {
+        let result: ExtractionResult | null = null;
+        const visited = new Set<any>();
+
+        function search(node: any) {
+            if (result) return;
+            if (!node || typeof node !== 'object') return;
+            if (visited.has(node)) return;
+            visited.add(node);
+
+            if (Array.isArray(node)) {
+                for (const item of node) {
+                    if (result) break;
+                    search(item);
+                }
+                return;
+            }
+
+            if (node.xig_polaris_media) {
+                const polarisRes = InstagramExtractor.extractPolarisMedia(node.xig_polaris_media, defaultTitle, defaultOgImage);
+                if (polarisRes) {
+                    result = polarisRes;
+                    return;
+                }
+            }
+
+            if (node.image_versions2 || node.carousel_media || (node.video_versions && Array.isArray(node.video_versions))) {
+                const polarisRes = InstagramExtractor.extractPolarisMedia(node, defaultTitle, defaultOgImage);
+                if (polarisRes) {
+                    result = polarisRes;
+                    return;
+                }
+            }
+
+            for (const key of Object.keys(node)) {
+                if (result) break;
+                search(node[key]);
+            }
+        }
+
+        for (const obj of jsonObjects) {
+            if (result) break;
+            search(obj);
+        }
+
         return result;
     }
 
-    private static getAllCandidates(node: any): any[] {
-        let candidates: any[] = [];
-        
-        if (node.image_versions2 && node.image_versions2.candidates) {
-            candidates = candidates.concat(node.image_versions2.candidates);
-        }
-        if (node.display_resources) {
-            candidates = candidates.concat(node.display_resources.map((r: any) => ({ url: r.src, width: r.config_width, height: r.config_height })));
-        }
-        if (node.candidates) {
-            candidates = candidates.concat(node.candidates);
-        }
-        if (node.thumbnail_resources) {
-            candidates = candidates.concat(node.display_resources);
-        }
-        if (node.display_url) {
-            candidates.push({ url: node.display_url, width: node.dimensions?.width, height: node.dimensions?.height });
-        }
-        
-        const valid = candidates.filter(c => c && (c.url || c.src) && typeof (c.url || c.src) === 'string' && !(c.url || c.src).includes('logging_page_id'));
-        
-        const unique = [];
-        const seen = new Set();
-        for (const c of valid) {
-            const url = c.url || c.src;
-            if (!seen.has(url)) {
-                seen.add(url);
-                let w = c.width || c.config_width || 0;
-                let h = c.height || c.config_height || 0;
-                if (w === 0 || h === 0) {
-                    const match = url.match(/(?:p|s)(\d+)x(\d+)/);
-                    if (match) {
-                        w = parseInt(match[1], 10);
-                        h = parseInt(match[2], 10);
-                    }
+    private static extractPolarisMedia(
+        node: any,
+        defaultTitle?: string,
+        defaultOgImage?: string
+    ): ExtractionResult | null {
+        if (!node || typeof node !== 'object') return null;
+
+        const title = node.caption?.text || node.title || defaultTitle || 'Instagram Media';
+        const author = node.owner?.username || node.user?.username || '';
+        let thumbnail = defaultOgImage || '';
+
+        // 1. VIDEO
+        if (Array.isArray(node.video_versions) && node.video_versions.length > 0) {
+            const videoUrl = node.video_versions[0].url;
+            if (videoUrl) {
+                if (node.image_versions2?.candidates?.[0]?.url) {
+                    thumbnail = node.image_versions2.candidates[0].url;
                 }
-                unique.push({ url, width: w, height: h });
-            }
-        }
-        return unique;
-    }
-
-    private static async parseImageNode(node: any, index: number, source: string) {
-        let candidates = await this.getAllCandidates(node);
-        if (candidates.length === 0) return null;
-        
-        console.log(`\n========================================================`);
-        console.log(`LOG EVERY IMAGE CANDIDATE FOR IMAGE ${index}`);
-        console.log(`========================================================`);
-        
-        const scoredCandidates = [];
-        
-        for (let i = 0; i < candidates.length; i++) {
-            const c = candidates[i];
-            console.log(`----------------------------------------`);
-            console.log(`Candidate ${i}`);
-            console.log(`URL: ${c.url}`);
-            console.log(`Width: ${c.width || 'MISSING'}`);
-            console.log(`Height: ${c.height || 'MISSING'}`);
-            console.log(`Estimated Resolution: ${c.width}x${c.height}`);
-            console.log(`File Extension: ${c.url.match(/\.([a-z0-9]+)\?/i)?.[1] || 'UNKNOWN'}`);
-            
-            const crop = c.url.includes('stp=c');
-            const resize = /_(p|s)\d+x\d+/.test(c.url);
-            const jpegRecomp = c.url.includes('dst-jpg') || c.url.includes('dst-jpegr');
-            const webp = c.url.includes('webp');
-            const avif = c.url.includes('avif');
-            
-            console.log(`Contains Crop Parameters: ${crop ? 'YES' : 'NO'}`);
-            console.log(`Contains Resize Parameters: ${resize ? 'YES' : 'NO'}`);
-            console.log(`Contains JPEG Recompression: ${jpegRecomp ? 'YES' : 'NO'}`);
-            console.log(`Contains WebP: ${webp ? 'YES' : 'NO'}`);
-            console.log(`Contains AVIF: ${avif ? 'YES' : 'NO'}`);
-            console.log(`URL Length: ${c.url.length}`);
-            
-            let status = 'ERROR', contentType = 'UNKNOWN', contentLength = 0, downloadedBytes = 0, redirects = 0, finalUrl = c.url;
-            try {
-                const res = await fetch(c.url, { redirect: 'follow' });
-                const buf = await res.arrayBuffer();
-                status = res.status.toString();
-                contentType = res.headers.get('content-type') || 'unknown';
-                contentLength = parseInt(res.headers.get('content-length') || '0', 10);
-                downloadedBytes = buf.byteLength;
-                redirects = res.redirected ? 1 : 0;
-                finalUrl = res.url;
-            } catch (err) {
-                console.log(`Error downloading candidate: ${err}`);
-            }
-            
-            console.log(`HTTP Status: ${status}`);
-            console.log(`Content-Type: ${contentType}`);
-            console.log(`Content-Length: ${contentLength}`);
-            console.log(`Downloaded Bytes: ${downloadedBytes}`);
-            console.log(`Redirect Count: ${redirects}`);
-            console.log(`Final URL: ${finalUrl}`);
-            
-            let score = downloadedBytes;
-            if (crop) score -= 1000000;
-            if (resize) score -= 500000;
-            if (c.url.includes('sh2')) score -= 100000;
-            
-            let reason = [];
-            if (crop) reason.push("Cropped");
-            if (resize) reason.push("Resized");
-            if (c.url.includes('sh2')) reason.push("Sharpened");
-            if (reason.length === 0) reason.push("Original");
-            
-            scoredCandidates.push({
-                index: i,
-                url: c.url,
-                finalUrl,
-                width: c.width,
-                height: c.height,
-                bytes: downloadedBytes,
-                score,
-                reason: reason.join(', ')
-            });
-        }
-        
-        console.log(`\n=================================================`);
-        console.log(`RANK EVERY CANDIDATE FOR IMAGE ${index}`);
-        console.log(`=================================================`);
-        scoredCandidates.sort((a, b) => b.score - a.score);
-        for (const sc of scoredCandidates) {
-            console.log(`Candidate ${sc.index} | Score: ${sc.score} | Reason: ${sc.reason} | Bytes: ${sc.bytes}`);
-        }
-        
-        const best = scoredCandidates[0];
-        const smallest = scoredCandidates[scoredCandidates.length - 1];
-        
-        console.log(`\n=================================================`);
-        console.log(`Selected Candidate`);
-        console.log(`Original URL: ${best.url}`);
-        console.log(`Final URL: ${best.finalUrl}`);
-        console.log(`Resolution: ${best.width}x${best.height}`);
-        console.log(`Content-Length: ${best.bytes}`);
-        console.log(`Score: ${best.score}`);
-        console.log(`Reason Selected: ${best.reason} (Highest Score)`);
-        console.log(`=================================================\n`);
-        
-        return {
-            id: `${source === 'GraphQL State' ? 'POLARIS' : 'UNKNOWN'}_${node.id || Date.now()}`,
-            url: smallest.url,
-            downloadUrl: best.url,
-            filename: `instagram_${source === 'GraphQL State' ? 'POLARIS' : 'UNKNOWN'}_${node.id || Date.now()}.jpg`,
-            format: 'jpg',
-            width: best.width,
-            height: best.height,
-            source: source
-        };
-    }
-
-    private static async extractImagesFromNode(node: any, images: any[], metadataSource: string, visited: Set<any> = new Set()) {
-        if (!node) return;
-
-        if (typeof node === 'string') {
-            if (node.includes('image_versions2') || node.includes('carousel_media') || node.includes('edge_sidecar_to_children')) {
-                try {
-                    const parsed = JSON.parse(node);
-                    await this.extractImagesFromNode(parsed, images, metadataSource, visited);
-                } catch(e) {}
-            }
-            return;
-        }
-
-        if (typeof node !== 'object') return;
-        if (visited.has(node)) return;
-        visited.add(node);
-
-        if (Array.isArray(node)) {
-            for (const item of node) {
-                await this.extractImagesFromNode(item, images, metadataSource, visited);
-            }
-            return;
-        }
-
-        let foundChildren = false;
-        const childKeys = ['edge_sidecar_to_children', 'carousel_media', 'GraphSidecar', 'children', 'edges', 'items', 'media'];
-        for (const key of childKeys) {
-            if (node[key]) {
-                await this.extractImagesFromNode(node[key], images, metadataSource, visited);
-                foundChildren = true;
-            }
-        }
-        
-        if (node.node) {
-            await this.extractImagesFromNode(node.node, images, metadataSource, visited);
-        }
-
-        if (node.image_versions2 || node.display_resources || node.display_url || node.candidates) {
-            const img = await this.parseImageNode(node, images.length, metadataSource);
-            if (img && !images.some(existing => existing.downloadUrl === img.downloadUrl)) {
-                images.push(img);
-            }
-        }
-
-        // Safe catch-all traversal for JSON structures
-        for (const key of Object.keys(node)) {
-            if (!childKeys.includes(key) && key !== 'node' && key !== 'image_versions2' && key !== 'display_resources' && key !== 'candidates') {
-                if (typeof node[key] === 'object' || typeof node[key] === 'string') {
-                    await this.extractImagesFromNode(node[key], images, metadataSource, visited);
-                }
-            }
-        }
-    }
-
-    private static async attemptExtract(url: string, useCookies: boolean, overallStart: number): Promise<ExtractionResult> {
-        let html = '';
-        
-        try {
-            const headers = useCookies ? getHeadersForUrl(url) : {
-                'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-            };
-            
-            const response = await fetch(url, { headers, redirect: 'follow' });
-            html = await response.text();
-            
-            if (html.length > 50) fs.writeFileSync(path.join(DEBUG_DIR, 'runtime-instagram.html'), html);
-
-            if (!response.ok) {
-                console.log(`Fetch failed with status: ${response.status}`);
-                return { mediaType: 'UNKNOWN', title: '', author: '', thumbnail: '', duration: 0, source: 'Instagram' };
-            }
-
-            const $ = cheerio.load(html);
-
-            let isVideo = false;
-            let images: Array<any> = [];
-            let metadataSource = '';
-
-            let title = $('meta[property="og:title"]').attr('content') || 'Instagram Post';
-            let ogImage = $('meta[property="og:image"]').attr('content') || '';
-            let ogVideo = $('meta[property="og:video"]').attr('content') || '';
-
-            // 1. Embedded JSON (Regex match for anything that looks like xdt_shortcode_media)
-            console.log("Trying embedded JSON...");
-            if (images.length === 0 && !isVideo) {
-                const embeddedMatch = html.match(/"(?:xdt_)?shortcode_media"\s*:\s*(\{.*)/s);
-                if (embeddedMatch) {
-                    try {
-                        let partial = embeddedMatch[1];
-                        if (partial.includes('"is_video":true') || partial.includes('"video_url"')) {
-                            isVideo = true;
-                            metadataSource = 'Embedded JSON';
-                        }
-                        
-                        let edgesStr = '';
-                        const edgesIndex = partial.indexOf('"edges":');
-                        if (edgesIndex > -1) {
-                            const arrayStart = partial.indexOf('[', edgesIndex);
-                            if (arrayStart > -1) {
-                                let depth = 0;
-                                for (let j = arrayStart; j < partial.length; j++) {
-                                    if (partial[j] === '[') depth++;
-                                    else if (partial[j] === ']') {
-                                        depth--;
-                                        if (depth === 0) {
-                                            edgesStr = partial.substring(arrayStart, j + 1);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        if (edgesStr) {
-                            try {
-                                const edges = JSON.parse(edgesStr);
-                                await this.extractImagesFromNode(edges, images, 'Embedded JSON');
-                                if (images.length > 0) {
-                                    metadataSource = 'Embedded JSON';
-                                    console.log("Found: YES (Parsed edges)");
-                                } else {
-                                    console.log("Found: NO (Edges array parsed but no images found)");
-                                }
-                            } catch(e) { console.log("Found: NO (Failed to parse edges JSON)"); }
-                        } else {
-                            try {
-                                const drMatch = partial.match(/"display_resources"\s*:\s*(\[.*?\])/s);
-                                if (drMatch) {
-                                    const dr = JSON.parse(drMatch[1]);
-                                    await this.extractImagesFromNode({ display_resources: dr }, images, 'Embedded JSON');
-                                    if (images.length > 0) {
-                                        metadataSource = 'Embedded JSON';
-                                        console.log("Found: YES (Parsed display_resources)");
-                                    } else {
-                                        console.log("Found: NO (Parsed display_resources but no images found)");
-                                    }
-                                } else {
-                                    console.log("Found: NO (Could not find display_resources)");
-                                }
-                            } catch (e) { console.log("Found: NO (Error parsing display_resources)"); }
-                        }
-                    } catch (e) { console.log("Found: NO (Regex matched but failed to process)"); }
-                } else {
-                    console.log("Found: NO (Regex match failed for embedded JSON)");
-                }
-            } else {
-                console.log("Found: NO (Skipped, already found data)");
-            }
-
-            // 2. __NEXT_DATA__
-            console.log("Trying __NEXT_DATA__...");
-            if (images.length === 0 && !isVideo) {
-                const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/s);
-                if (nextDataMatch) {
-                    try {
-                        const nextData = JSON.parse(nextDataMatch[1]);
-                        const items = nextData?.props?.pageProps?.routeProps?.items || [];
-                        if (items.length > 0) {
-                            const item = items[0];
-                            if (item.video_versions || item.is_video) {
-                                isVideo = true;
-                                metadataSource = '__NEXT_DATA__';
-                            }
-                            await this.extractImagesFromNode(item, images, '__NEXT_DATA__');
-                            if (images.length > 0) {
-                                metadataSource = '__NEXT_DATA__';
-                                console.log("Found: YES");
-                            } else {
-                                console.log("Found: NO (Parsed items but no images found)");
-                            }
-                        } else {
-                            console.log("Found: NO (No items found in routeProps)");
-                        }
-                    } catch (e) {
-                        console.log("Found: NO (Error parsing __NEXT_DATA__ JSON)");
-                    }
-                } else {
-                    console.log("Found: NO (Regex match failed for __NEXT_DATA__)");
-                }
-            } else {
-                console.log("Found: NO (Skipped, already found data)");
-            }
-
-            // 3. application/ld+json
-            console.log("Trying application/ld+json...");
-            if (images.length === 0 && !isVideo) {
-                let foundLd = false;
-                $('script[type="application/ld+json"]').each((_, el) => {
-                    try {
-                        const data = JSON.parse($(el).html() || '{}');
-                        const items = Array.isArray(data) ? data : [data];
-                        for (let i = 0; i < items.length; i++) {
-                            const item = items[i];
-                            if (item['@type'] === 'VideoObject') {
-                                isVideo = true;
-                                metadataSource = 'application/ld+json';
-                                foundLd = true;
-                            } else if (item['@type'] === 'ImageObject' || item['@type'] === 'ImageGallery') {
-                                if (item.image) {
-                                    let imgList = Array.isArray(item.image) ? item.image : [item.image];
-                                    for (let j = 0; j < imgList.length; j++) {
-                                        images.push({
-                                            id: `ig-ld-${j}`, url: imgList[j], downloadUrl: imgList[j],
-                                            format: 'jpg', filename: `instagram_ld_${j}.jpg`, width: 0, height: 0, source: 'application/ld+json'
-                                        });
-                                    }
-                                    metadataSource = 'application/ld+json';
-                                    foundLd = true;
-                                }
-                            }
-                        }
-                    } catch (e) {}
-                });
-                if (foundLd) console.log("Found: YES");
-                else console.log("Found: NO (Did not find relevant schema objects)");
-            } else {
-                console.log("Found: NO (Skipped, already found data)");
-            }
-
-            // 4. window._sharedData
-            console.log("Trying window._sharedData...");
-            if (images.length === 0 && !isVideo) {
-                const sharedDataMatch = html.match(/window\._sharedData\s*=\s*({.*?});<\/script>/s);
-                if (sharedDataMatch) {
-                    try {
-                        const sd = JSON.parse(sharedDataMatch[1]);
-                        const edges = sd?.entry_data?.PostPage?.[0]?.graphql?.shortcode_media?.edge_sidecar_to_children?.edges;
-                        if (edges) {
-                            await this.extractImagesFromNode(edges, images, 'window._sharedData');
-                            if (images.length > 0) {
-                                metadataSource = 'window._sharedData';
-                                console.log("Found: YES (Parsed edges)");
-                            } else {
-                                console.log("Found: NO (Parsed edges but no images found)");
-                            }
-                        } else {
-                            const media = sd?.entry_data?.PostPage?.[0]?.graphql?.shortcode_media;
-                            if (media) {
-                                if (media.is_video) isVideo = true;
-                                await this.extractImagesFromNode(media, images, 'window._sharedData');
-                                if (images.length > 0) {
-                                    metadataSource = 'window._sharedData';
-                                    console.log("Found: YES (Parsed media)");
-                                } else {
-                                    console.log("Found: NO (Parsed media but no images found)");
-                                }
-                            } else {
-                                console.log("Found: NO (No media found in shortcode_media)");
-                            }
-                        }
-                    } catch (e) {
-                        console.log("Found: NO (Failed to parse JSON for _sharedData)");
-                    }
-                } else {
-                    console.log("Found: NO (Regex match failed for _sharedData)");
-                }
-            } else {
-                console.log("Found: NO (Skipped, already found data)");
-            }
-
-            // 5. additionalDataLoaded
-            console.log("Trying additionalDataLoaded...");
-            if (images.length === 0 && !isVideo) {
-                const addDataMatch = html.match(/window\.__additionalDataLoaded\([^,]+,\s*({.*?})\);/s);
-                if (addDataMatch) {
-                    try {
-                        const data = JSON.parse(addDataMatch[1]);
-                        const media = data?.graphql?.shortcode_media || data?.require?.[0]?.[3]?.[0]?.['__d_args_path'] ; 
-                        // Note: I will just use the standard parse for now
-                        if (media) {
-                            if (media.is_video) isVideo = true;
-                            if (media.edge_sidecar_to_children?.edges) {
-                                const edges = media.edge_sidecar_to_children.edges;
-                                await this.extractImagesFromNode(edges, images, 'additionalDataLoaded');
-                                if (images.length > 0) {
-                                    metadataSource = 'additionalDataLoaded';
-                                    console.log("Found: YES (Parsed edges)");
-                                } else {
-                                    console.log("Found: NO (Parsed edges but no images found)");
-                                }
-                            } else {
-                                await this.extractImagesFromNode(media, images, 'additionalDataLoaded');
-                                if (images.length > 0) {
-                                    metadataSource = 'additionalDataLoaded';
-                                    console.log("Found: YES (Parsed media)");
-                                } else {
-                                    console.log("Found: NO (Parsed media but no images found)");
-                                }
-                            }
-                        } else {
-                            console.log("Found: NO (No shortcode_media in additionalDataLoaded)");
-                        }
-                    } catch (e) {
-                        console.log("Found: NO (Failed to parse JSON for additionalDataLoaded)");
-                    }
-                } else {
-                    console.log("Found: NO (Regex match failed for additionalDataLoaded)");
-                }
-            } else {
-                console.log("Found: NO (Skipped, already found data)");
-            }
-            
-            // NEW STRATEGY for modern Instagram: polaris embedded JSON or require array
-            console.log("Trying Polaris/Relay/GraphQL embedded state...");
-            if (images.length === 0 && !isVideo) {
-                 // Try searching for PolarisPost or similar graphql responses
-                     let foundPolaris = false;
-                     const scripts = $('script').map((_, el) => $(el).html()).get();
-                     for (const script of scripts) {
-                         if (!script) continue;
-                         if (script.includes('edge_sidecar_to_children') || script.includes('carousel_media') || script.includes('image_versions2') || script.includes('ScheduledServerJS')) {
-                             try {
-                                 // If it's a pure JSON script (like data-sjs), parse directly
-                                 const obj = JSON.parse(script);
-                                 await this.extractImagesFromNode(obj, images, 'GraphQL State');
-                                 if (images.length > 0) {
-                                     metadataSource = 'GraphQL State';
-                                     foundPolaris = true;
-                                 }
-                             } catch (e) {
-                                 // If it's a JS script containing JSON, try to extract the JSON object
-                                 const matches = script.match(/(\{.*\})/s);
-                                 if (matches) {
-                                     try {
-                                         const obj = JSON.parse(matches[1]);
-                                         await this.extractImagesFromNode(obj, images, 'GraphQL State');
-                                         if (images.length > 0) {
-                                             metadataSource = 'GraphQL State';
-                                             foundPolaris = true;
-                                         }
-                                     } catch (err) {}
-                                 }
-                             }
-                         }
-                     }
-                     if (foundPolaris) console.log("Found: YES");
-                     else console.log("Found: NO (Could not extract valid image data from scripts)");
-                 } else {
-                console.log("Found: NO (Skipped, already found data)");
-            }
-
-            // 6. OpenGraph
-            console.log("Trying OpenGraph...");
-            if (images.length === 0 && !isVideo) {
-                console.log("Reached fallback because all previous extraction strategies failed.");
-                const ogType = $('meta[property="og:type"]').attr('content') || '';
-                if (ogType === 'video' || ogVideo) {
-                    isVideo = true;
-                    metadataSource = 'OpenGraph';
-                    console.log("Found: YES (Video)");
-                } else if (ogImage) {
-                    images.push({
-                        id: 'ig-og', url: ogImage, downloadUrl: ogImage,
-                        format: 'jpg', filename: 'instagram_og.jpg', width: 0, height: 0, source: 'OpenGraph'
-                    });
-                    metadataSource = 'OpenGraph';
-                    console.log("Found: YES (Image)");
-                } else {
-                    console.log("Found: NO (No OpenGraph tags found)");
-                }
-            } else {
-                console.log("Found: NO (Skipped, already found data)");
-            }
-
-            // Final logging format exactly as requested by user
-            let resultType: 'IMAGE' | 'VIDEO' | 'GALLERY' | 'UNKNOWN' = 'UNKNOWN';
-            
-            if (isVideo) {
-                resultType = 'VIDEO';
-            } else if (images.length > 1) {
-                resultType = 'GALLERY';
-            } else if (images.length === 1) {
-                resultType = 'IMAGE';
-            }
-
-            if (resultType !== 'UNKNOWN') {
-                const highestRes = images.length > 0 
-                    ? images.reduce((max, img) => ((img.width * img.height) > (max.width * max.height) ? img : max), images[0])
-                    : null;
-                const resStr = highestRes && highestRes.width && highestRes.height ? `${highestRes.width}x${highestRes.height}` : 'Unknown';
-
-                console.log(`\nPlatform: Instagram`);
-                console.log(`Media Type: ${resultType.charAt(0).toUpperCase() + resultType.slice(1).toLowerCase()}`);
-                console.log(`Source Used: ${metadataSource}`);
-                console.log(`Number of Images: ${images.length}`);
-                console.log(`Highest Resolution: ${resStr}`);
-                console.log(`Download URLs Generated: ${images.length}`);
-                console.log(`Execution Time: ${Math.round(performance.now() - overallStart)}ms`);
-                console.log(`Result: SUCCESS\n`);
-
                 return {
-                    mediaType: resultType,
+                    mediaType: 'VIDEO',
                     title,
-                    author: '',
-                    thumbnail: images.length > 0 ? images[0].url : ogImage,
-                    images: images.length > 0 ? images : undefined,
+                    author,
+                    thumbnail,
+                    duration: node.video_duration || 0,
+                    formats: [
+                        {
+                            format_id: 'mp4_best',
+                            url: videoUrl,
+                            ext: 'mp4',
+                            vcodec: 'h264',
+                            acodec: 'aac',
+                            format_note: 'MP4'
+                        }
+                    ],
+                    source: 'Instagram'
+                };
+            }
+        }
+
+        // 2. CAROUSEL
+        if (Array.isArray(node.carousel_media) && node.carousel_media.length > 0) {
+            const images: any[] = [];
+            for (let i = 0; i < node.carousel_media.length; i++) {
+                const item = node.carousel_media[i];
+                const cand = item.image_versions2?.candidates?.[0];
+                if (cand && cand.url) {
+                    const imgUrl = cand.url;
+                    images.push({
+                        id: `polaris_carousel_${item.id || i}`,
+                        url: imgUrl,
+                        downloadUrl: imgUrl,
+                        format: 'jpg',
+                        filename: `instagram_carousel_${item.id || i}.jpg`,
+                        width: cand.width || 0,
+                        height: cand.height || 0
+                    });
+                }
+            }
+
+            if (images.length > 0) {
+                thumbnail = images[0].url || thumbnail;
+                return {
+                    mediaType: 'GALLERY',
+                    title,
+                    author,
+                    thumbnail,
+                    images,
                     duration: 0,
                     source: 'Instagram'
                 };
             }
+        }
 
-            return { mediaType: 'UNKNOWN', title: '', author: '', thumbnail: '', duration: 0, source: 'Instagram' };
+        // 3. SINGLE IMAGE
+        if (node.image_versions2?.candidates?.[0]?.url) {
+            const cand = node.image_versions2.candidates[0];
+            const imgUrl = cand.url;
+            thumbnail = imgUrl;
+            return {
+                mediaType: 'IMAGE',
+                title,
+                author,
+                thumbnail,
+                images: [
+                    {
+                        id: `polaris_img_${node.id || Date.now()}`,
+                        url: imgUrl,
+                        downloadUrl: imgUrl,
+                        format: 'jpg',
+                        filename: `instagram_image_${node.id || Date.now()}.jpg`,
+                        width: cand.width || 0,
+                        height: cand.height || 0
+                    }
+                ],
+                duration: 0,
+                source: 'Instagram'
+            };
+        }
 
-        } catch (err: any) {
-            console.error("Attempt Extract error: ", err);
-            return { mediaType: 'UNKNOWN', title: '', author: '', thumbnail: '', duration: 0, source: 'Instagram' };
-        }    }
+        return null;
+    }
 }

@@ -4,6 +4,9 @@ import { cleanupFile } from '../utils/cleanup';
 import { HandlerFactory } from '../services/handlers/HandlerFactory';
 import fs from 'fs';
 import path from 'path';
+import { Readable } from 'stream';
+import { instagramReelExtractor } from '../extractors/instagram/InstagramReelExtractor';
+import { metaCache } from '../services/handlers/BaseHandler';
 
 
 // ─── /api/info ───────────────────────────────────────────────────────────────
@@ -35,9 +38,67 @@ export const download = async (req: Request, res: Response): Promise<void> => {
     try {
         const url = req.body?.url;
         const formatId = req.body?.formatId;
-        if (!url || typeof url !== 'string' || !formatId) {
-            res.status(400).json({ error: 'Valid URL and formatId are required' });
+        const videoUrl = req.body?.videoUrl;
+        const title = req.body?.title;
+
+        if (!url || typeof url !== 'string') {
+            res.status(400).json({ error: 'Valid URL string is required' });
             return;
+        }
+
+        const isInstagramReel = url.includes('instagram.com') && (
+            url.includes('/reel/') || url.includes('/reels/') || url.includes('/tv/')
+        );
+
+        if (videoUrl || isInstagramReel) {
+            let targetVideoUrl = videoUrl;
+            let targetTitle = title || 'instagram_reel';
+
+            if (!targetVideoUrl && isInstagramReel) {
+                const cachedInfo: any = metaCache.get(url);
+                if (cachedInfo && cachedInfo.formats && cachedInfo.formats[0]?.url) {
+                    targetVideoUrl = cachedInfo.formats[0].url;
+                    targetTitle = cachedInfo.title || targetTitle;
+                } else {
+                    const reelRes = await instagramReelExtractor.extract(url);
+                    targetVideoUrl = reelRes.videoUrl;
+                    targetTitle = reelRes.title || targetTitle;
+                }
+            }
+
+            if (targetVideoUrl) {
+                console.log(`[Native Reel Download] Using direct CDN URL`);
+                const fetchHeaders = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                    'Accept': '*/*',
+                    'Referer': 'https://www.instagram.com/'
+                };
+
+                const response = await fetch(targetVideoUrl, { headers: fetchHeaders, redirect: 'follow' });
+                if (!response.ok || !response.body) {
+                    throw new Error(`HTTP ${response.status} when fetching direct video CDN`);
+                }
+
+                const safeTitle = (targetTitle || 'instagram_reel').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+                res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.mp4"`);
+                res.setHeader('Content-Type', 'video/mp4');
+
+                const contentLength = response.headers.get('content-length');
+                if (contentLength) {
+                    res.setHeader('Content-Length', contentLength);
+                }
+
+                const nodeStream = Readable.fromWeb(response.body as any);
+                nodeStream.pipe(res);
+
+                nodeStream.on('error', (err: any) => {
+                    console.error('[Native Reel Download] Stream error:', err);
+                    if (!res.headersSent) {
+                        res.status(500).json({ error: 'Failed to stream video' });
+                    }
+                });
+                return;
+            }
         }
 
         const downloadedFilePath = await DownloaderService.downloadMedia(url, formatId);

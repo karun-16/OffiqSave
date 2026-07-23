@@ -15,6 +15,7 @@ interface MediaFormat {
   vcodec?: string;
   acodec?: string;
   abr?: number;
+  url?: string;
 }
 
 interface MediaInfo {
@@ -104,11 +105,11 @@ export default function Home() {
       
       // Auto-select best quality if available
       if (res.data.formats && res.data.formats.length > 0) {
-        const videoFormats = res.data.formats.filter((f: any) => f.vcodec !== 'none' && f.resolution);
+        const videoFormats = res.data.formats.filter((f: any) => f.vcodec !== 'none');
         if (videoFormats.length > 0) {
-           setSelectedQuality(videoFormats[videoFormats.length - 1].format_id);
+           setSelectedQuality(videoFormats[videoFormats.length - 1].format_id || 'mp4_best');
         } else {
-           setSelectedQuality(res.data.formats[0].format_id);
+           setSelectedQuality(res.data.formats[0].format_id || 'mp4_best');
         }
       }
       
@@ -199,7 +200,15 @@ export default function Home() {
 
     try {
       let endpoint = "http://localhost:4000/api/download";
-      let payload: any = { url, formatId: selectedQuality };
+      const selectedFormatObj = mediaInfo?.formats?.find((f: any) => f.format_id === selectedQuality);
+      const directVideoUrl = selectedFormatObj?.url || mediaInfo?.formats?.[0]?.url;
+
+      let payload: any = { 
+        url, 
+        formatId: selectedQuality,
+        videoUrl: directVideoUrl,
+        title: mediaInfo?.title
+      };
 
       if (selectedFormat === "audio") {
         endpoint = "http://localhost:4000/api/convert";
@@ -239,12 +248,12 @@ export default function Home() {
 
   const getEstimatedSize = useCallback(() => {
     if (!mediaInfo) return "";
-    const format = mediaInfo.formats.find(f => f.format_id === selectedQuality);
+    const format = mediaInfo.formats.find(f => f.format_id === selectedQuality) || mediaInfo.formats[0];
     if (!format) return "";
     let sizeStr = "";
     if (format.filesize) sizeStr = formatBytes(format.filesize);
     else if ((format as any).filesize_approx) sizeStr = `~${formatBytes((format as any).filesize_approx)}`;
-    return sizeStr || "Unknown Size";
+    return sizeStr;
   }, [mediaInfo, selectedQuality]);
 
   return (
@@ -379,10 +388,10 @@ export default function Home() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="glass-panel rounded-3xl p-6 md:p-8 flex flex-col lg:flex-row gap-8 items-start w-full shadow-2xl shadow-brand-primary/5"
+                className="glass-panel rounded-3xl p-6 md:p-8 flex flex-col lg:flex-row gap-8 items-stretch w-full max-w-4xl mx-auto shadow-2xl shadow-brand-primary/5 border border-white/10 overflow-hidden"
               >
                 {/* Thumbnail */}
-                <div className="w-full lg:w-5/12 flex flex-col gap-4 shrink-0">
+                <div className="w-full lg:w-[300px] lg:min-w-[300px] lg:max-w-[300px] flex flex-col gap-4 shrink-0 grow-0">
                   <div className="w-full aspect-video bg-black/50 rounded-2xl overflow-hidden relative group border border-white/5">
                     {mediaInfo.thumbnail || (mediaInfo.mediaType === 'gallery' && mediaInfo.images) ? (
                       <img 
@@ -425,32 +434,36 @@ export default function Home() {
                 </div>
 
                 {/* Info & Actions */}
-                <div className="flex-1 flex flex-col w-full h-full justify-between gap-6">
-                  <div>
+                <div className="flex-1 min-w-0 flex flex-col justify-between gap-6 overflow-hidden">
+                  <div className="min-w-0 overflow-hidden">
                     {mediaInfo.uploader && (
-                      <div className="text-sm text-text-secondary font-medium mb-2 flex items-center gap-2">
+                      <div className="text-sm text-text-secondary font-medium mb-2 flex items-center gap-2 truncate">
                         <span>by</span>
                         {mediaInfo.uploader_url ? (
-                          <a href={mediaInfo.uploader_url} target="_blank" rel="noopener noreferrer" className="text-brand-primary hover:text-brand-secondary transition-colors underline-offset-4 hover:underline">
+                          <a href={mediaInfo.uploader_url} target="_blank" rel="noopener noreferrer" className="text-brand-primary hover:text-brand-secondary transition-colors underline-offset-4 hover:underline truncate">
                             {mediaInfo.uploader}
                           </a>
-                        ) : <span className="text-text-secondary">{mediaInfo.uploader}</span>}
+                        ) : <span className="text-text-secondary truncate">{mediaInfo.uploader}</span>}
                       </div>
                     )}
-                    <h3 className="text-2xl font-bold line-clamp-2 leading-snug text-text-primary/95" title={mediaInfo.title}>
+                    <h3 className="text-xl sm:text-2xl font-bold line-clamp-2 break-words overflow-hidden leading-snug text-text-primary/95 max-w-full" title={mediaInfo.title}>
                       {mediaInfo.title}
                     </h3>
                     
                     {(mediaInfo.mediaType === 'video' || mediaInfo.mediaType === 'audio' || !mediaInfo.mediaType) && (
                       <div className="flex items-center gap-4 mt-3 text-sm text-text-muted font-medium">
-                        <span>{getEstimatedSize()}</span>
-                        <span>&bull;</span>
+                        {getEstimatedSize() ? (
+                          <>
+                            <span>{getEstimatedSize()}</span>
+                            <span>&bull;</span>
+                          </>
+                        ) : null}
                         <span className="uppercase">{selectedFormat}</span>
                       </div>
                     )}
                   </div>
 
-                  <div className="space-y-5 bg-white/[0.02] p-5 rounded-2xl border border-white/5">
+                  <div className="space-y-5 bg-white/[0.02] p-5 rounded-2xl border border-white/5 mt-auto">
                     
                     {(mediaInfo.mediaType === 'video' || mediaInfo.mediaType === 'audio' || !mediaInfo.mediaType) ? (
                       <>
@@ -498,16 +511,25 @@ export default function Home() {
                                   onChange={(e) => setSelectedQuality(e.target.value)}
                                 >
                                   {mediaInfo.formats
-                                    .filter(f => f.resolution && f.resolution !== 'audio only' && f.vcodec !== 'none')
+                                    .filter(f => f.vcodec !== 'none')
                                     .reverse()
-                                    .map(f => {
+                                    .map((f, idx) => {
                                       let sizeStr = "";
                                       if (f.filesize) sizeStr = formatBytes(f.filesize);
                                       else if ((f as any).filesize_approx) sizeStr = `~${formatBytes((f as any).filesize_approx)}`;
                                       
+                                      let label = "Best Quality";
+                                      if (f.resolution && f.resolution !== 'audio only' && f.resolution !== 'MP4') {
+                                        label = `${f.resolution} • ${(f.ext || 'mp4').toUpperCase()}`;
+                                      } else if (f.format_note && f.format_note !== 'MP4') {
+                                        label = `${f.format_note} • ${(f.ext || 'mp4').toUpperCase()}`;
+                                      } else {
+                                        label = "Best Quality";
+                                      }
+
                                       return (
-                                        <option key={f.format_id} value={f.format_id} className="bg-bg-input">
-                                          {f.resolution === 'audio only' ? 'Audio' : f.resolution} • {f.ext.toUpperCase()}{sizeStr ? ` • ${sizeStr}` : ''}
+                                        <option key={f.format_id || idx} value={f.format_id || 'mp4_best'} className="bg-bg-input">
+                                          {label}{sizeStr ? ` • ${sizeStr}` : ''}
                                         </option>
                                       );
                                     })}

@@ -3,14 +3,23 @@ import { BaseHandler } from './BaseHandler';
 export class InstagramHandler extends BaseHandler {
     protected platformName = 'Instagram';
     protected getExtraOptions() { 
-        return {
-            addHeader: [
-                'User-Agent:Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-                'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Accept-Language:en-US,en;q=0.5',
-                'Sec-Fetch-Mode:navigate'
-            ]
-        }; 
+        return {}; 
+    }
+
+    async download(rawUrl: string, formatId: string): Promise<string> {
+        if (rawUrl.includes('/reel/') || rawUrl.includes('/reels/') || rawUrl.includes('/tv/') || formatId.startsWith('http')) {
+            console.log(`[Native Reel Download] Using direct CDN URL`);
+            let directUrl = formatId.startsWith('http') ? formatId : '';
+            if (!directUrl) {
+                const { instagramReelExtractor } = require('../../extractors/instagram/InstagramReelExtractor');
+                const reelRes = await instagramReelExtractor.extract(rawUrl);
+                directUrl = reelRes.videoUrl;
+            }
+            if (directUrl) {
+                return this.downloadImageDirect(directUrl);
+            }
+        }
+        return super.download(rawUrl, formatId);
     }
 }
 
