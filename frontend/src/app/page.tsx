@@ -7,6 +7,7 @@ import axios from "axios";
 
 // Types
 interface MediaFormat {
+  id?: string;
   format_id: string;
   ext: string;
   resolution: string;
@@ -16,6 +17,19 @@ interface MediaFormat {
   acodec?: string;
   abr?: number;
   url?: string;
+  quality?: string;
+  bitrate?: number;
+  height?: number;
+  width?: number;
+}
+
+interface VideoMedia {
+  id: string;
+  thumbnail?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  formats: MediaFormat[];
 }
 
 interface MediaInfo {
@@ -26,6 +40,7 @@ interface MediaInfo {
   uploader?: string;
   uploader_url?: string;
   formats: MediaFormat[];
+  videos?: VideoMedia[];
   mediaType?: 'video' | 'audio' | 'image' | 'gallery';
   images?: Array<{ id: string; url: string; width?: number; height?: number; format: string }>;
 }
@@ -38,7 +53,7 @@ const DOWNLOAD_STAGES = [
   "Merging...",
   "Converting...",
   "Finalizing...",
-  "Completed."
+  "Download Started"
 ];
 
 const FEATURES = [
@@ -57,7 +72,7 @@ const FAQS = [
   { q: "What formats are supported?", a: "Currently we support video downloads primarily in MP4 and WebM formats depending on the source platform's availability. For audio conversions, we process and deliver high-quality MP3 files." }
 ];
 
-const formatDuration = (seconds: number) => {
+const formatDuration = (seconds?: number) => {
   if (!seconds) return "Unknown";
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -75,6 +90,31 @@ const formatBytes = (bytes?: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+const getQualityLabel = (format: MediaFormat): string => {
+  if (format.height) return `${format.height}p`;
+  if (format.resolution && format.resolution !== 'MP4' && format.resolution !== 'audio only') {
+    if (format.resolution.includes('x')) {
+      const parts = format.resolution.split('x');
+      if (parts[1]) return `${parts[1]}p`;
+    }
+    if (format.resolution.endsWith('p')) return format.resolution;
+  }
+  if (format.url) {
+    const match = format.url.match(/\/(\d+)x(\d+)\//);
+    if (match && match[2]) return `${match[2]}p`;
+  }
+  if (format.format_note && format.format_note !== 'MP4' && format.format_note !== 'MP4 Video') {
+    return format.format_note;
+  }
+  if (format.quality && format.quality !== 'HD') {
+    return format.quality;
+  }
+  if (format.bitrate) {
+    return `${Math.round(format.bitrate / 1000)}k`;
+  }
+  return 'HD';
+};
+
 export default function Home() {
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "downloading" | "done">("idle");
@@ -82,13 +122,15 @@ export default function Home() {
   const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
-  
-  // Selection
+
+  // Single Video Selection State
   const [selectedFormat, setSelectedFormat] = useState("video");
   const [selectedAudioExt, setSelectedAudioExt] = useState("mp3");
   const [selectedQuality, setSelectedQuality] = useState("");
 
-
+  // Multi Video Selection & Downloading States
+  const [multiVideoQualities, setMultiVideoQualities] = useState<Record<string, string>>({});
+  const [downloadingVideos, setDownloadingVideos] = useState<Record<string, boolean>>({});
 
   const handlePasteAndFetch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -98,21 +140,34 @@ export default function Home() {
     setErrorMsg("");
     setMediaInfo(null);
     setDownloadStageIdx(0);
+    setMultiVideoQualities({});
+    setDownloadingVideos({});
 
     try {
       const res = await axios.post("http://localhost:4000/api/info", { url });
       setMediaInfo(res.data);
-      
-      // Auto-select best quality if available
+
+      // Auto-select best quality for single video
       if (res.data.formats && res.data.formats.length > 0) {
         const videoFormats = res.data.formats.filter((f: any) => f.vcodec !== 'none');
         if (videoFormats.length > 0) {
-           setSelectedQuality(videoFormats[videoFormats.length - 1].format_id || 'mp4_best');
+          setSelectedQuality(videoFormats[videoFormats.length - 1].format_id || 'mp4_best');
         } else {
-           setSelectedQuality(res.data.formats[0].format_id || 'mp4_best');
+          setSelectedQuality(res.data.formats[0].format_id || 'mp4_best');
         }
       }
-      
+
+      // Initialize multi-video qualities mapping
+      if (Array.isArray(res.data.videos) && res.data.videos.length > 1) {
+        const initialQualities: Record<string, string> = {};
+        res.data.videos.forEach((vid: VideoMedia, idx: number) => {
+          const key = vid.id || `video_${idx}`;
+          const bestFmt = vid.formats?.[0]?.format_id || `video_${idx}_mp4_0`;
+          initialQualities[key] = bestFmt;
+        });
+        setMultiVideoQualities(initialQualities);
+      }
+
       setStatus("ready");
     } catch (err: any) {
       if (!err.response) {
@@ -128,16 +183,16 @@ export default function Home() {
     if (!mediaInfo?.images) return;
     setStatus("downloading");
     setDownloadStageIdx(3);
-    
+
     try {
       const response = await fetch("http://localhost:4000/api/download-zip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ images: mediaInfo.images, sourceUrl: url })
       });
-      
+
       if (!response.ok) throw new Error("ZIP generation failed");
-      
+
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -147,7 +202,7 @@ export default function Home() {
       a.click();
       a.remove();
       window.URL.revokeObjectURL(downloadUrl);
-      
+
       setStatus("ready");
     } catch (e: any) {
       console.error(e);
@@ -160,7 +215,6 @@ export default function Home() {
     setStatus("downloading");
     setDownloadStageIdx(3);
     try {
-      // Use backend proxy to avoid CORS issues on restricted CDNs
       const response = await fetch("http://localhost:4000/api/download-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -190,7 +244,6 @@ export default function Home() {
     setStatus("downloading");
     setDownloadStageIdx(0);
 
-    // Simulate progress stages visually while the request runs
     const stageInterval = setInterval(() => {
       setDownloadStageIdx(prev => {
         if (prev < DOWNLOAD_STAGES.length - 2) return prev + 1;
@@ -199,39 +252,32 @@ export default function Home() {
     }, 3000);
 
     try {
-      let endpoint = "http://localhost:4000/api/download";
       const selectedFormatObj = mediaInfo?.formats?.find((f: any) => f.format_id === selectedQuality);
       const directVideoUrl = selectedFormatObj?.url || mediaInfo?.formats?.[0]?.url;
 
-      let payload: any = { 
-        url, 
+      let payload: any = {
+        url,
         formatId: selectedQuality,
+        selectedFormat,
         videoUrl: directVideoUrl,
         title: mediaInfo?.title
       };
 
       if (selectedFormat === "audio") {
-        endpoint = "http://localhost:4000/api/convert";
         payload.formatId = 'bestaudio/best';
         payload.targetFormat = selectedAudioExt.replace(/_.*/, '');
       }
 
-      const response = await axios.post(endpoint, payload, {
-        responseType: 'blob'
-      });
+      // Step 1: Prepare download and get downloadId
+      const prepRes = await axios.post("http://localhost:4000/api/download/prepare", payload);
+      const { downloadId } = prepRes.data;
 
       clearInterval(stageInterval);
-      setDownloadStageIdx(DOWNLOAD_STAGES.length - 1); // Completed
-      
-      const downloadUrl = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      const ext = selectedFormat === "audio" ? selectedAudioExt.replace(/_.*/, '') : "mp4";
-      link.setAttribute('download', `${mediaInfo.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${ext}`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(downloadUrl);
+      setDownloadStageIdx(DOWNLOAD_STAGES.length - 1);
+
+      // Step 2: Trigger native browser download manager directly (no Axios Blob buffering)
+      const downloadFileUrl = `http://localhost:4000/api/download/file/${downloadId}`;
+      window.location.href = downloadFileUrl;
 
       setTimeout(() => setStatus("done"), 1000);
       setTimeout(() => {
@@ -241,14 +287,93 @@ export default function Home() {
       }, 6000);
     } catch (err: any) {
       clearInterval(stageInterval);
-      setErrorMsg(err.response?.data?.error || "Download failed. Please try again.");
+      setErrorMsg(err.response?.data?.error || err.message || "Download failed. Please try again.");
       setStatus("idle");
+    }
+  };
+
+  const handleMultiVideoDownload = async (video: VideoMedia, videoIndex: number) => {
+    const key = video.id || `video_${videoIndex}`;
+    const selectedFormatId = multiVideoQualities[key];
+    const selected = video.formats.find(f => f.format_id === selectedFormatId) || video.formats[0];
+
+    if (!selected) return;
+
+    setDownloadingVideos(prev => ({ ...prev, [key]: true }));
+
+    try {
+      const sanitizedTitle = (mediaInfo?.title || 'tweet').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      const payload = {
+        url,
+        formatId: selected.format_id,
+        videoUrl: selected.url,
+        title: `${sanitizedTitle}_video_${videoIndex + 1}`
+      };
+
+      console.log("MULTI VIDEO UI TRACE");
+      console.log("videos.length:", mediaInfo?.videos?.length);
+      console.log("video index:", videoIndex);
+      console.log("video id:", video.id);
+      console.log("formats.length:", video.formats.length);
+      console.log("selected format_id:", selected.format_id);
+      console.log("selected direct URL:", selected.url);
+
+      const response = await axios.post("http://localhost:4000/api/download", payload, {
+        responseType: 'blob'
+      });
+
+      const contentTypeHeader = String(response.headers['content-type'] || '');
+      if (
+        contentTypeHeader.includes('application/json') ||
+        (response.data?.type && response.data.type.includes('application/json'))
+      ) {
+        const text = await response.data.text();
+        console.log("MULTI VIDEO DOWNLOAD BLOB ERROR:", text);
+        try {
+          const jsonErr = JSON.parse(text);
+          setErrorMsg(jsonErr.error || "Download failed.");
+        } catch {
+          setErrorMsg(text);
+        }
+        setDownloadingVideos(prev => ({ ...prev, [key]: false }));
+        return;
+      }
+
+      const downloadUrl = window.URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `${sanitizedTitle}_video_${videoIndex + 1}.mp4`;
+
+      document.body.appendChild(link);
+      requestAnimationFrame(() => {
+        link.click();
+        setTimeout(() => {
+          link.remove();
+          window.URL.revokeObjectURL(downloadUrl);
+        }, 5000);
+      });
+
+    } catch (err: any) {
+      console.error("Multi video download failed:", err);
+      if (err.response?.data instanceof Blob && err.response?.data?.type?.includes('application/json')) {
+        const text = await err.response.data.text();
+        try {
+          const jsonErr = JSON.parse(text);
+          setErrorMsg(jsonErr.error || "Download failed.");
+        } catch {
+          setErrorMsg(text);
+        }
+      } else {
+        setErrorMsg("Failed to download video. Please try again.");
+      }
+    } finally {
+      setDownloadingVideos(prev => ({ ...prev, [key]: false }));
     }
   };
 
   const getEstimatedSize = useCallback(() => {
     if (!mediaInfo) return "";
-    const format = mediaInfo.formats.find(f => f.format_id === selectedQuality) || mediaInfo.formats[0];
+    const format = mediaInfo.formats?.find(f => f.format_id === selectedQuality) || mediaInfo.formats?.[0];
     if (!format) return "";
     let sizeStr = "";
     if (format.filesize) sizeStr = formatBytes(format.filesize);
@@ -260,9 +385,9 @@ export default function Home() {
     <div className="w-full bg-bg-main min-h-screen relative overflow-hidden">
       <div className="absolute inset-0 bg-noise pointer-events-none opacity-[0.03] mix-blend-overlay"></div>
       <div className="absolute top-[-20%] left-1/2 -translate-x-1/2 w-[1000px] h-[800px] bg-spotlight pointer-events-none opacity-60 mix-blend-screen"></div>
-      
+
       {/* Header Area */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
@@ -279,9 +404,9 @@ export default function Home() {
       </motion.div>
 
       <main className="flex-1 flex flex-col items-center justify-start px-4 sm:px-8 pt-36 sm:pt-48 md:pt-56 pb-16 w-full max-w-5xl mx-auto min-h-screen">
-        
+
         {/* Main Hero */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.7, delay: 0.1, ease: "easeOut" }}
@@ -297,18 +422,17 @@ export default function Home() {
 
           {/* Input Box */}
           <form onSubmit={handlePasteAndFetch} className="w-full relative group">
-            
             <div className="relative glass-panel hover:bg-bg-card-hover rounded-2xl flex items-center p-2 pl-6 transition-all duration-500 flex-col sm:flex-row shadow-[0_8px_30px_rgba(0,0,0,0.3)] focus-within:border-brand-primary/50 focus-within:shadow-[0_0_20px_rgba(0,212,255,0.15)]">
               <Link2 className="w-6 h-6 text-text-secondary shrink-0 hidden sm:block" />
-              <input 
-                type="text" 
+              <input
+                type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="Paste your media URL here..." 
+                placeholder="Paste your media URL here..."
                 className="flex-1 w-full bg-transparent border-none outline-none text-text-primary px-4 py-4 text-base sm:text-lg placeholder:text-text-muted"
                 disabled={status === "loading" || status === "downloading"}
               />
-              <button 
+              <button
                 type="submit"
                 disabled={!url.trim() || status === "loading" || status === "downloading"}
                 className="w-full sm:w-auto mt-2 sm:mt-0 bg-brand-primary hover:bg-brand-hover text-text-primary px-8 py-4 rounded-xl font-medium transition-all shadow-lg shadow-brand-primary/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shrink-0"
@@ -322,10 +446,10 @@ export default function Home() {
         {/* State Transitions */}
         <div className="w-full max-w-4xl mt-16 sm:mt-24 min-h-[300px]">
           <AnimatePresence mode="wait">
-            
+
             {/* Error State */}
             {errorMsg && status === "idle" && (
-              <motion.div 
+              <motion.div
                 key="error"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -339,21 +463,19 @@ export default function Home() {
 
             {/* Skeleton Loading State */}
             {status === "loading" && (
-              <motion.div 
+              <motion.div
                 key="loading"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 className="glass-panel rounded-3xl p-6 flex flex-col md:flex-row gap-8 w-full items-start overflow-hidden border border-white/5"
               >
-                {/* Thumbnail Skeleton */}
                 <div className="w-full md:w-[280px] shrink-0">
                   <div className="w-full aspect-video rounded-2xl bg-white/5 animate-pulse overflow-hidden relative">
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite]" />
                   </div>
                 </div>
 
-                {/* Info & Actions Skeleton */}
                 <div className="flex-1 flex flex-col w-full gap-6 mt-2 md:mt-0">
                   <div className="space-y-4">
                     <div className="h-4 w-24 bg-white/5 rounded-full animate-pulse" />
@@ -382,218 +504,359 @@ export default function Home() {
             )}
 
             {/* Ready State */}
-            {status === "ready" && mediaInfo && (
-              <motion.div 
-                key="ready"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="glass-panel rounded-3xl p-6 md:p-8 flex flex-col lg:flex-row gap-8 items-stretch w-full max-w-4xl mx-auto shadow-2xl shadow-brand-primary/5 border border-white/10 overflow-hidden"
-              >
-                {/* Thumbnail */}
-                <div className="w-full lg:w-[300px] lg:min-w-[300px] lg:max-w-[300px] flex flex-col gap-4 shrink-0 grow-0">
-                  <div className="w-full aspect-video bg-black/50 rounded-2xl overflow-hidden relative group border border-white/5">
-                    {mediaInfo.thumbnail || (mediaInfo.mediaType === 'gallery' && mediaInfo.images) ? (
-                      <img 
-                        src={mediaInfo.mediaType === 'gallery' && mediaInfo.images ? mediaInfo.images[currentImageIndex].url : mediaInfo.thumbnail} 
-                        alt={mediaInfo.title} 
-                        loading="lazy" 
-                        decoding="async" 
-                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <PlayCircle className="w-12 h-12 text-text-muted" />
+            {status === "ready" && mediaInfo && (() => {
+              console.log("MEDIA OBJECT:", mediaInfo);
+              console.log("mediaType:", mediaInfo?.mediaType);
+              console.log("formats:", mediaInfo?.formats?.length);
+
+              const isMultiVideo =
+                mediaInfo.mediaType?.toLowerCase() === "video" &&
+                Array.isArray(mediaInfo.videos) &&
+                mediaInfo.videos.length > 1;
+
+              const isVideoBranch = !isMultiVideo && (mediaInfo.mediaType?.toLowerCase() === 'video' || mediaInfo.mediaType?.toLowerCase() === 'audio' || !mediaInfo.mediaType);
+              const isImageBranch = !isMultiVideo && !isVideoBranch && mediaInfo.mediaType?.toLowerCase() === 'image';
+
+              if (isMultiVideo) console.log("Rendering MULTI-VIDEO UI");
+              else if (isVideoBranch) console.log("Rendering SINGLE VIDEO UI");
+              else if (isImageBranch) console.log("Rendering IMAGE UI");
+              else console.log("Rendering GALLERY UI");
+
+              // MULTI-VIDEO UI BRANCH
+              if (isMultiVideo) {
+                return (
+                  <motion.div
+                    key="ready-multi-video"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="w-full flex flex-col gap-6"
+                  >
+                    {/* Header Card */}
+                    <div className="glass-panel rounded-3xl p-6 md:p-8 border border-white/10 shadow-2xl">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <span className="bg-brand-primary/90 backdrop-blur-md px-3 py-1 rounded-md text-xs font-bold text-text-primary uppercase tracking-wider">
+                            {mediaInfo.platform} &bull; {mediaInfo.videos!.length} Videos
+                          </span>
+                          {mediaInfo.uploader && (
+                            <span className="text-xs text-text-secondary">
+                              by {mediaInfo.uploader}
+                            </span>
+                          )}
+                        </div>
+                        <h2 className="text-xl sm:text-2xl font-bold text-text-primary line-clamp-2 mt-1">
+                          {mediaInfo.title}
+                        </h2>
                       </div>
-                    )}
-                    
-                    {(mediaInfo.mediaType === 'video' || mediaInfo.mediaType === 'audio' || !mediaInfo.mediaType) && (
-                      <div className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-semibold text-text-primary/90">
-                        {formatDuration(mediaInfo.duration)}
-                      </div>
-                    )}
-                    
-                    <div className="absolute top-3 left-3 bg-brand-primary/90 backdrop-blur-md px-3 py-1 rounded-md text-xs font-bold text-text-primary uppercase tracking-wider shadow-lg">
-                      {mediaInfo.platform}
                     </div>
-                  </div>
 
-                  {mediaInfo.mediaType === 'gallery' && mediaInfo.images && (
-                    <div className="w-full flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-brand-primary/50 scrollbar-track-transparent">
-                      {mediaInfo.images.map((img, idx) => (
-                        <button
-                          key={img.id}
-                          onClick={() => setCurrentImageIndex(idx)}
-                          className={`w-16 h-16 shrink-0 rounded-lg overflow-hidden border-2 transition-all ${idx === currentImageIndex ? 'border-brand-primary opacity-100' : 'border-transparent opacity-50 hover:opacity-100'}`}
-                        >
-                          <img src={img.url} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                    {/* Videos Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                      {mediaInfo.videos!.map((video: VideoMedia, idx: number) => {
+                        const videoKey = video.id || `video_${idx}`;
+                        const isDownloadingThis = !!downloadingVideos[videoKey];
+                        const bestFmt = video.formats?.[0];
+                        const currentQuality = multiVideoQualities[videoKey] || bestFmt?.format_id || `video_${idx}_mp4_0`;
 
-                {/* Info & Actions */}
-                <div className="flex-1 min-w-0 flex flex-col justify-between gap-6 overflow-hidden">
-                  <div className="min-w-0 overflow-hidden">
-                    {mediaInfo.uploader && (
-                      <div className="text-sm text-text-secondary font-medium mb-2 flex items-center gap-2 truncate">
-                        <span>by</span>
-                        {mediaInfo.uploader_url ? (
-                          <a href={mediaInfo.uploader_url} target="_blank" rel="noopener noreferrer" className="text-brand-primary hover:text-brand-secondary transition-colors underline-offset-4 hover:underline truncate">
-                            {mediaInfo.uploader}
-                          </a>
-                        ) : <span className="text-text-secondary truncate">{mediaInfo.uploader}</span>}
-                      </div>
-                    )}
-                    <h3 className="text-xl sm:text-2xl font-bold line-clamp-2 break-words overflow-hidden leading-snug text-text-primary/95 max-w-full" title={mediaInfo.title}>
-                      {mediaInfo.title}
-                    </h3>
-                    
-                    {(mediaInfo.mediaType === 'video' || mediaInfo.mediaType === 'audio' || !mediaInfo.mediaType) && (
-                      <div className="flex items-center gap-4 mt-3 text-sm text-text-muted font-medium">
-                        {getEstimatedSize() ? (
-                          <>
-                            <span>{getEstimatedSize()}</span>
-                            <span>&bull;</span>
-                          </>
-                        ) : null}
-                        <span className="uppercase">{selectedFormat}</span>
-                      </div>
-                    )}
-                  </div>
+                        return (
+                          <div
+                            key={videoKey}
+                            className="glass-panel rounded-3xl p-5 md:p-6 flex flex-col gap-5 border border-white/10 shadow-xl justify-between"
+                          >
+                            {/* Video Title & Header */}
+                            <div className="flex items-center justify-between text-sm font-bold text-text-primary">
+                              <span className="flex items-center gap-2">
+                                <PlayCircle className="w-5 h-5 text-brand-primary" />
+                                Video {idx + 1}
+                              </span>
+                              {video.duration ? (
+                                <span className="text-xs font-semibold text-text-muted bg-white/5 px-2.5 py-1 rounded-md">
+                                  {formatDuration(video.duration)}
+                                </span>
+                              ) : null}
+                            </div>
 
-                  <div className="space-y-5 bg-white/[0.02] p-5 rounded-2xl border border-white/5 mt-auto">
-                    
-                    {(mediaInfo.mediaType === 'video' || mediaInfo.mediaType === 'audio' || !mediaInfo.mediaType) ? (
-                      <>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          {/* Format Selector */}
-                          <div className="flex flex-col gap-2">
-                            <label className="text-xs text-text-secondary uppercase font-bold tracking-wider">Format</label>
-                            <div className="relative group">
-                              <select 
-                                className="w-full appearance-none bg-bg-input border border-white/10 hover:border-white/20 rounded-xl pl-4 pr-12 py-3 outline-none focus:border-brand-primary/50 transition-colors cursor-pointer text-sm font-medium"
-                                value={selectedFormat}
-                                onChange={(e) => {
-                                  setSelectedFormat(e.target.value);
-                                  if (e.target.value === "audio") {
-                                    setSelectedAudioExt("mp3");
-                                  }
-                                }}
+                            {/* HTML5 Video Preview */}
+                            <div className="w-full aspect-video bg-black/60 rounded-2xl overflow-hidden relative border border-white/5 shadow-inner">
+                              <video
+                                controls
+                                preload="metadata"
+                                poster={video.thumbnail || mediaInfo.thumbnail}
+                                className="w-full h-full object-contain"
                               >
-                                <option value="video" className="bg-bg-input">Video</option>
-                                <option value="audio" className="bg-bg-input">Audio</option>
-                              </select>
-                              <ChevronDown className="w-4 h-4 absolute right-4 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none group-hover:text-text-primary transition-colors" />
+                                {bestFmt?.url && <source src={bestFmt.url} type="video/mp4" />}
+                              </video>
+                            </div>
+
+                            {/* Controls */}
+                            <div className="space-y-4 bg-white/[0.02] p-4 rounded-2xl border border-white/5 mt-auto">
+                              {/* Quality Selector */}
+                              <div className="flex flex-col gap-2">
+                                <label className="text-xs text-text-secondary uppercase font-bold tracking-wider">Quality</label>
+                                <div className="relative group">
+                                  <select
+                                    className="w-full appearance-none bg-bg-input border border-white/10 hover:border-white/20 rounded-xl pl-4 pr-12 py-3 outline-none focus:border-brand-primary/50 transition-colors cursor-pointer text-sm font-medium text-text-primary"
+                                    value={currentQuality}
+                                    onChange={(e) => {
+                                      const newFmt = e.target.value;
+                                      setMultiVideoQualities(prev => ({
+                                        ...prev,
+                                        [videoKey]: newFmt
+                                      }));
+                                    }}
+                                  >
+                                    {video.formats.map((f, fIdx) => (
+                                      <option key={f.format_id || fIdx} value={f.format_id} className="bg-bg-input">
+                                        {getQualityLabel(f)} ({f.quality || 'HD'})
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <ChevronDown className="w-4 h-4 absolute right-4 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none group-hover:text-text-primary transition-colors" />
+                                </div>
+                              </div>
+
+                              {/* Download Button */}
+                              <button
+                                onClick={() => handleMultiVideoDownload(video, idx)}
+                                disabled={isDownloadingThis}
+                                className="w-full bg-gradient-to-b from-[#37E0FF] to-[#00D4FF] hover:from-[#5DE8FF] hover:to-[#00BCE6] text-[#0B0C0F] px-5 py-3.5 rounded-xl font-bold transition-all shadow-[0_4px_20px_rgba(0,212,255,0.2)] hover:shadow-[0_8px_30px_rgba(0,212,255,0.3)] hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                              >
+                                {isDownloadingThis ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" /> Downloading...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Download className="w-4 h-4" /> Download Video {idx + 1}
+                                  </>
+                                )}
+                              </button>
                             </div>
                           </div>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                );
+              }
 
-                          {/* Quality Selector */}
-                          <div className="flex flex-col gap-2">
-                            <label className="text-xs text-text-secondary uppercase font-bold tracking-wider">Quality</label>
-                            <div className="relative group">
-                              {selectedFormat === "audio" ? (
-                                <select 
-                                  className="w-full appearance-none bg-bg-input border border-white/10 hover:border-white/20 rounded-xl pl-4 pr-12 py-3 outline-none focus:border-brand-primary/50 transition-colors cursor-pointer text-sm font-medium"
-                                  value={selectedAudioExt}
-                                  onChange={(e) => setSelectedAudioExt(e.target.value)}
-                                >
-                                  <option value="mp3" className="bg-bg-input">Best Audio • MP3 • 320 kbps</option>
-                                  <option value="m4a" className="bg-bg-input">High • M4A • 256 kbps</option>
-                                  <option value="mp3_192" className="bg-bg-input">Medium • MP3 • 192 kbps</option>
-                                  <option value="mp3_128" className="bg-bg-input">Low • MP3 • 128 kbps</option>
-                                </select>
-                              ) : (
-                                <select 
-                                  className="w-full appearance-none bg-bg-input border border-white/10 hover:border-white/20 rounded-xl pl-4 pr-12 py-3 outline-none focus:border-brand-primary/50 transition-colors cursor-pointer text-sm font-medium"
-                                  value={selectedQuality}
-                                  onChange={(e) => setSelectedQuality(e.target.value)}
-                                >
-                                  {mediaInfo.formats
-                                    .filter(f => f.vcodec !== 'none')
-                                    .reverse()
-                                    .map((f, idx) => {
-                                      let sizeStr = "";
-                                      if (f.filesize) sizeStr = formatBytes(f.filesize);
-                                      else if ((f as any).filesize_approx) sizeStr = `~${formatBytes((f as any).filesize_approx)}`;
-                                      
-                                      let label = "Best Quality";
-                                      if (f.resolution && f.resolution !== 'audio only' && f.resolution !== 'MP4') {
-                                        label = `${f.resolution} • ${(f.ext || 'mp4').toUpperCase()}`;
-                                      } else if (f.format_note && f.format_note !== 'MP4') {
-                                        label = `${f.format_note} • ${(f.ext || 'mp4').toUpperCase()}`;
-                                      } else {
-                                        label = "Best Quality";
-                                      }
+              // SINGLE VIDEO / IMAGE / GALLERY UI BRANCHES
+              return (
+                <motion.div
+                  key="ready"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="glass-panel rounded-3xl p-6 md:p-8 flex flex-col lg:flex-row gap-8 items-stretch w-full max-w-4xl mx-auto shadow-2xl shadow-brand-primary/5 border border-white/10 overflow-hidden"
+                >
+                  {/* Thumbnail */}
+                  <div className="w-full lg:w-[300px] lg:min-w-[300px] lg:max-w-[300px] flex flex-col gap-4 shrink-0 grow-0">
+                    <div className="w-full aspect-video bg-black/50 rounded-2xl overflow-hidden relative group border border-white/5">
+                      {mediaInfo.thumbnail || (mediaInfo.mediaType === 'gallery' && mediaInfo.images) ? (
+                        <img
+                          src={mediaInfo.mediaType === 'gallery' && mediaInfo.images ? mediaInfo.images[currentImageIndex].url : mediaInfo.thumbnail}
+                          alt={mediaInfo.title}
+                          loading="lazy"
+                          decoding="async"
+                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <PlayCircle className="w-12 h-12 text-text-muted" />
+                        </div>
+                      )}
 
-                                      return (
-                                        <option key={f.format_id || idx} value={f.format_id || 'mp4_best'} className="bg-bg-input">
-                                          {label}{sizeStr ? ` • ${sizeStr}` : ''}
-                                        </option>
-                                      );
-                                    })}
-                                </select>
-                              )}
-                              <ChevronDown className="w-4 h-4 absolute right-4 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none group-hover:text-text-primary transition-colors" />
-                            </div>
-                          </div>
+                      {(mediaInfo.mediaType === 'video' || mediaInfo.mediaType === 'audio' || !mediaInfo.mediaType) && (
+                        <div className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-semibold text-text-primary/90">
+                          {formatDuration(mediaInfo.duration)}
                         </div>
+                      )}
 
-                        <button 
-                          onClick={handleDownload}
-                          className="w-full bg-gradient-to-b from-[#37E0FF] to-[#00D4FF] hover:from-[#5DE8FF] hover:to-[#00BCE6] text-[#0B0C0F] px-6 py-4 rounded-xl font-bold transition-all shadow-[0_4px_20px_rgba(0,212,255,0.2)] hover:shadow-[0_8px_30px_rgba(0,212,255,0.3)] hover:-translate-y-1 active:translate-y-0 flex items-center justify-center gap-2"
-                        >
-                          <Download className="w-5 h-5" />
-                          Download Now
-                        </button>
-                      </>
-                    ) : mediaInfo.mediaType === 'image' ? (
-                      <>
-                        <div className="flex items-center justify-between px-4 py-3 bg-bg-input rounded-xl border border-white/5">
-                          <span className="text-sm font-medium text-text-secondary">Format</span>
-                          <span className="text-sm font-bold text-text-primary uppercase">{mediaInfo.images?.[0]?.format || 'JPG'}</span>
-                        </div>
-                        <button 
-                          onClick={() => handleImageDownload(mediaInfo.images![0].url, mediaInfo.images![0].id + '.' + mediaInfo.images![0].format)}
-                          className="w-full bg-gradient-to-b from-[#37E0FF] to-[#00D4FF] hover:from-[#5DE8FF] hover:to-[#00BCE6] text-[#0B0C0F] px-6 py-4 rounded-xl font-bold transition-all shadow-[0_4px_20px_rgba(0,212,255,0.2)] hover:shadow-[0_8px_30px_rgba(0,212,255,0.3)] hover:-translate-y-1 active:translate-y-0 flex items-center justify-center gap-2"
-                        >
-                          <Download className="w-5 h-5" /> Download Original Image
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-center justify-between px-4 py-3 bg-bg-input rounded-xl border border-white/5 mb-2">
-                          <span className="text-sm font-medium text-text-secondary">Gallery Overview</span>
-                          <span className="text-sm font-bold text-text-primary">{mediaInfo.images?.length || 0} Images</span>
-                        </div>
-                        <div className="text-center mb-2">
-                          <span className="text-xs font-bold text-text-secondary uppercase tracking-wider">Image {currentImageIndex + 1} of {mediaInfo.images?.length}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <button 
-                            onClick={() => handleImageDownload(mediaInfo.images![currentImageIndex].url, mediaInfo.images![currentImageIndex].id + '.' + mediaInfo.images![currentImageIndex].format)}
-                            className="w-full bg-bg-input hover:bg-bg-card-hover border border-white/5 hover:border-white/10 text-text-primary px-4 py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 text-sm"
+                      <div className="absolute top-3 left-3 bg-brand-primary/90 backdrop-blur-md px-3 py-1 rounded-md text-xs font-bold text-text-primary uppercase tracking-wider shadow-lg">
+                        {mediaInfo.platform}
+                      </div>
+                    </div>
+
+                    {mediaInfo.mediaType === 'gallery' && mediaInfo.images && (
+                      <div className="w-full flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-brand-primary/50 scrollbar-track-transparent">
+                        {mediaInfo.images.map((img, idx) => (
+                          <button
+                            key={img.id}
+                            onClick={() => setCurrentImageIndex(idx)}
+                            className={`w-16 h-16 shrink-0 rounded-lg overflow-hidden border-2 transition-all ${idx === currentImageIndex ? 'border-brand-primary opacity-100' : 'border-transparent opacity-50 hover:opacity-100'}`}
                           >
-                            <Download className="w-4 h-4" /> Current Image
+                            <img src={img.url} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
                           </button>
-                          <button 
-                            onClick={handleZipDownload}
-                            className="w-full bg-gradient-to-b from-[#37E0FF] to-[#00D4FF] hover:from-[#5DE8FF] hover:to-[#00BCE6] text-[#0B0C0F] px-4 py-4 rounded-xl font-bold transition-all shadow-[0_4px_20px_rgba(0,212,255,0.2)] hover:-translate-y-1 active:translate-y-0 flex items-center justify-center gap-2 text-sm"
-                          >
-                            <Download className="w-4 h-4" /> Download All (.zip)
-                          </button>
-                        </div>
-                      </>
+                        ))}
+                      </div>
                     )}
                   </div>
-                </div>
-              </motion.div>
-            )}
+
+                  {/* Info & Actions */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-between gap-6 overflow-hidden">
+                    <div className="min-w-0 overflow-hidden">
+                      {mediaInfo.uploader && (
+                        <div className="text-sm text-text-secondary font-medium mb-2 flex items-center gap-2 truncate">
+                          <span>by</span>
+                          {mediaInfo.uploader_url ? (
+                            <a href={mediaInfo.uploader_url} target="_blank" rel="noopener noreferrer" className="text-brand-primary hover:text-brand-secondary transition-colors underline-offset-4 hover:underline truncate">
+                              {mediaInfo.uploader}
+                            </a>
+                          ) : <span className="text-text-secondary truncate">{mediaInfo.uploader}</span>}
+                        </div>
+                      )}
+                      <h3 className="text-xl sm:text-2xl font-bold line-clamp-2 break-words overflow-hidden leading-snug text-text-primary/95 max-w-full" title={mediaInfo.title}>
+                        {mediaInfo.title}
+                      </h3>
+
+                      {isVideoBranch && (
+                        <div className="flex items-center gap-4 mt-3 text-sm text-text-muted font-medium">
+                          {getEstimatedSize() ? (
+                            <>
+                              <span>{getEstimatedSize()}</span>
+                              <span>&bull;</span>
+                            </>
+                          ) : null}
+                          <span className="uppercase">{selectedFormat}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-5 bg-white/[0.02] p-5 rounded-2xl border border-white/5 mt-auto">
+
+                      {isVideoBranch ? (() => {
+                        return (
+                          <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              {/* Format Selector */}
+                              <div className="flex flex-col gap-2">
+                                <label className="text-xs text-text-secondary uppercase font-bold tracking-wider">Format</label>
+                                <div className="relative group">
+                                  <select
+                                    className="w-full appearance-none bg-bg-input border border-white/10 hover:border-white/20 rounded-xl pl-4 pr-12 py-3 outline-none focus:border-brand-primary/50 transition-colors cursor-pointer text-sm font-medium"
+                                    value={selectedFormat}
+                                    onChange={(e) => {
+                                      setSelectedFormat(e.target.value);
+                                      if (e.target.value === "audio") {
+                                        setSelectedAudioExt("mp3");
+                                      }
+                                    }}
+                                  >
+                                    <option value="video" className="bg-bg-input">Video</option>
+                                    <option value="audio" className="bg-bg-input">Audio</option>
+                                  </select>
+                                  <ChevronDown className="w-4 h-4 absolute right-4 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none group-hover:text-text-primary transition-colors" />
+                                </div>
+                              </div>
+
+                              {/* Quality Selector */}
+                              <div className="flex flex-col gap-2">
+                                <label className="text-xs text-text-secondary uppercase font-bold tracking-wider">Quality</label>
+                                <div className="relative group">
+                                  {selectedFormat === "audio" ? (
+                                    <select
+                                      className="w-full appearance-none bg-bg-input border border-white/10 hover:border-white/20 rounded-xl pl-4 pr-12 py-3 outline-none focus:border-brand-primary/50 transition-colors cursor-pointer text-sm font-medium"
+                                      value={selectedAudioExt}
+                                      onChange={(e) => setSelectedAudioExt(e.target.value)}
+                                    >
+                                      <option value="mp3" className="bg-bg-input">Best Audio • MP3 • 320 kbps</option>
+                                      <option value="m4a" className="bg-bg-input">High • M4A • 256 kbps</option>
+                                      <option value="mp3_192" className="bg-bg-input">Medium • MP3 • 192 kbps</option>
+                                      <option value="mp3_128" className="bg-bg-input">Low • MP3 • 128 kbps</option>
+                                    </select>
+                                  ) : (
+                                    <select
+                                      className="w-full appearance-none bg-bg-input border border-white/10 hover:border-white/20 rounded-xl pl-4 pr-12 py-3 outline-none focus:border-brand-primary/50 transition-colors cursor-pointer text-sm font-medium"
+                                      value={selectedQuality}
+                                      onChange={(e) => setSelectedQuality(e.target.value)}
+                                    >
+                                      {mediaInfo.formats
+                                        .filter(f => f.vcodec !== 'none')
+                                        .reverse()
+                                        .map((f, idx) => {
+                                          let sizeStr = "";
+                                          if (f.filesize) sizeStr = formatBytes(f.filesize);
+                                          else if ((f as any).filesize_approx) sizeStr = `~${formatBytes((f as any).filesize_approx)}`;
+
+                                          let label = "Best Quality";
+                                          if (f.resolution && f.resolution !== 'audio only' && f.resolution !== 'MP4') {
+                                            label = `${f.resolution} • ${(f.ext || 'mp4').toUpperCase()}`;
+                                          } else if (f.format_note && f.format_note !== 'MP4') {
+                                            label = `${f.format_note} • ${(f.ext || 'mp4').toUpperCase()}`;
+                                          } else {
+                                            label = "Best Quality";
+                                          }
+
+                                          return (
+                                            <option key={f.format_id || idx} value={f.format_id || 'mp4_best'} className="bg-bg-input">
+                                              {label}{sizeStr ? ` • ${sizeStr}` : ''}
+                                            </option>
+                                          );
+                                        })}
+                                    </select>
+                                  )}
+                                  <ChevronDown className="w-4 h-4 absolute right-4 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none group-hover:text-text-primary transition-colors" />
+                                </div>
+                              </div>
+                            </div>
+
+                            <button
+                              onClick={handleDownload}
+                              className="w-full bg-gradient-to-b from-[#37E0FF] to-[#00D4FF] hover:from-[#5DE8FF] hover:to-[#00BCE6] text-[#0B0C0F] px-6 py-4 rounded-xl font-bold transition-all shadow-[0_4px_20px_rgba(0,212,255,0.2)] hover:shadow-[0_8px_30px_rgba(0,212,255,0.3)] hover:-translate-y-1 active:translate-y-0 flex items-center justify-center gap-2"
+                            >
+                              <Download className="w-5 h-5" />
+                              Download Now
+                            </button>
+                          </>
+                        );
+                      })() : isImageBranch ? (
+                        <>
+                          <div className="flex items-center justify-between px-4 py-3 bg-bg-input rounded-xl border border-white/5">
+                            <span className="text-sm font-medium text-text-secondary">Format</span>
+                            <span className="text-sm font-bold text-text-primary uppercase">{mediaInfo.images?.[0]?.format || 'JPG'}</span>
+                          </div>
+                          <button
+                            onClick={() => handleImageDownload(mediaInfo.images![0].url, mediaInfo.images![0].id + '.' + mediaInfo.images![0].format)}
+                            className="w-full bg-gradient-to-b from-[#37E0FF] to-[#00D4FF] hover:from-[#5DE8FF] hover:to-[#00BCE6] text-[#0B0C0F] px-6 py-4 rounded-xl font-bold transition-all shadow-[0_4px_20px_rgba(0,212,255,0.2)] hover:shadow-[0_8px_30px_rgba(0,212,255,0.3)] hover:-translate-y-1 active:translate-y-0 flex items-center justify-center gap-2"
+                          >
+                            <Download className="w-5 h-5" /> Download Original Image
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between px-4 py-3 bg-bg-input rounded-xl border border-white/5 mb-2">
+                            <span className="text-sm font-medium text-text-secondary">Gallery Overview</span>
+                            <span className="text-sm font-bold text-text-primary">{mediaInfo.images?.length || 0} Images</span>
+                          </div>
+                          <div className="text-center mb-2">
+                            <span className="text-xs font-bold text-text-secondary uppercase tracking-wider">Image {currentImageIndex + 1} of {mediaInfo.images?.length}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <button
+                              onClick={() => handleImageDownload(mediaInfo.images![currentImageIndex].url, mediaInfo.images![currentImageIndex].id + '.' + mediaInfo.images![currentImageIndex].format)}
+                              className="w-full bg-bg-input hover:bg-bg-card-hover border border-white/5 hover:border-white/10 text-text-primary px-4 py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 text-sm"
+                            >
+                              <Download className="w-4 h-4" /> Current Image
+                            </button>
+                            <button
+                              onClick={handleZipDownload}
+                              className="w-full bg-gradient-to-b from-[#37E0FF] to-[#00D4FF] hover:from-[#5DE8FF] hover:to-[#00BCE6] text-[#0B0C0F] px-4 py-4 rounded-xl font-bold transition-all shadow-[0_4px_20px_rgba(0,212,255,0.2)] hover:-translate-y-1 active:translate-y-0 flex items-center justify-center gap-2 text-sm"
+                            >
+                              <Download className="w-4 h-4" /> Download All (.zip)
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })()}
 
             {/* Downloading State */}
             {status === "downloading" && (
-              <motion.div 
+              <motion.div
                 key="processing"
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -607,15 +870,14 @@ export default function Home() {
                   </svg>
                   <Download className="w-8 h-8 absolute text-brand-primary animate-pulse" />
                 </div>
-                
+
                 <div className="text-center w-full max-w-md">
                   <h3 className="text-2xl font-bold mb-6 text-text-primary tracking-tight">
                     {DOWNLOAD_STAGES[downloadStageIdx]}
                   </h3>
-                  
-                  {/* Progress Bar Container */}
+
                   <div className="w-full bg-white/5 rounded-full h-3 mb-4 overflow-hidden relative border border-white/10">
-                    <motion.div 
+                    <motion.div
                       className="bg-gradient-to-r from-brand-primary to-brand-accent h-full rounded-full relative overflow-hidden"
                       initial={{ width: "0%" }}
                       animate={{ width: `${Math.min(((downloadStageIdx + 1) / DOWNLOAD_STAGES.length) * 100, 100)}%` }}
@@ -632,7 +894,7 @@ export default function Home() {
 
             {/* Done State */}
             {status === "done" && (
-              <motion.div 
+              <motion.div
                 key="done"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -650,7 +912,7 @@ export default function Home() {
                   <h3 className="text-3xl font-bold text-text-primary mb-2">Download Complete</h3>
                   <p className="text-text-secondary text-base">Your file has been saved to your device.</p>
                 </div>
-                <button 
+                <button
                   onClick={() => { setStatus("idle"); setUrl(""); }}
                   className="mt-6 px-8 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-text-primary font-medium transition-all hover:scale-105 active:scale-95 border border-white/10"
                 >
@@ -667,7 +929,7 @@ export default function Home() {
       {/* Features Section */}
       <section id="features" className="w-full py-24 border-t border-border-card relative bg-bg-main/50 scroll-mt-28">
         <div className="max-w-5xl mx-auto px-6 sm:px-8">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
@@ -681,7 +943,7 @@ export default function Home() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {FEATURES.map((f, i) => (
-              <motion.div 
+              <motion.div
                 key={i}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -703,7 +965,7 @@ export default function Home() {
       {/* FAQ Section */}
       <section id="faq" className="w-full py-24 border-t border-border-card relative scroll-mt-28">
         <div className="max-w-4xl mx-auto px-6 sm:px-8">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
@@ -714,7 +976,7 @@ export default function Home() {
 
           <div className="w-full flex flex-col gap-4">
             {FAQS.map((faq, i) => (
-              <motion.div 
+              <motion.div
                 key={i}
                 initial={{ opacity: 0, y: 10 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -729,7 +991,7 @@ export default function Home() {
           </div>
         </div>
       </section>
-      
+
     </div>
   );
 }

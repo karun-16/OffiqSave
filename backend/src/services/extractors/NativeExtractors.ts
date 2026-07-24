@@ -387,7 +387,13 @@ export async function extractRedditNative(url: string): Promise<ClassificationRe
     try {
         // Normalize to json endpoint
         const jsonUrl = url.split('?')[0].replace(/\/$/, '') + '.json';
-        const response = await fetch(jsonUrl, { headers: { ...BROWSER_HEADERS, 'Accept': 'application/json' } });
+        const response = await fetch(jsonUrl, {
+            headers: {
+                ...BROWSER_HEADERS,
+                'User-Agent': 'desktop:OffiqSave:v1.0.0 (by /u/karun)',
+                'Accept': 'application/json'
+            }
+        });
         if (!response.ok) return { type: 'UNKNOWN' };
 
         const data = await response.json() as any;

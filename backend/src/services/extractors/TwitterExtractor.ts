@@ -17,7 +17,12 @@ export class TwitterExtractor {
             const $ = cheerio.load(html);
 
             const ogType = $('meta[property="og:type"]').attr('content') || '';
-            if (ogType === 'video') return { mediaType: 'VIDEO', title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+            if (ogType === 'video') {
+                const res = { mediaType: 'VIDEO' as const, title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+                console.log("===== RETURN OBJECT =====");
+                console.dir(res, { depth: null });
+                return res;
+            }
 
             const images: Array<{ id: string; url: string; format: string }> = [];
 
@@ -36,18 +41,27 @@ export class TwitterExtractor {
             const author = $('meta[name="twitter:creator"]').attr('content') || $('meta[property="og:site_name"]').attr('content') || '';
 
             if (images.length === 1) {
-                return {
-                    mediaType: 'IMAGE', title, author, thumbnail: images[0].url,
+                const res = {
+                    mediaType: 'IMAGE' as const, title, author, thumbnail: images[0].url,
                     images, duration: 0, source: 'Twitter'
                 };
+                console.log("===== RETURN OBJECT =====");
+                console.dir(res, { depth: null });
+                return res;
             }
 
-            return {
-                mediaType: 'GALLERY', title, author, thumbnail: images[0].url,
+            const res = {
+                mediaType: 'GALLERY' as const, title, author, thumbnail: images[0].url,
                 images, duration: 0, source: 'Twitter'
             };
+            console.log("===== RETURN OBJECT =====");
+            console.dir(res, { depth: null });
+            return res;
         } catch (_) {
-            return { mediaType: 'UNKNOWN', title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+            const res = { mediaType: 'UNKNOWN' as const, title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+            console.log("===== RETURN OBJECT =====");
+            console.dir(res, { depth: null });
+            return res;
         }
     }
 
@@ -60,31 +74,57 @@ export class TwitterExtractor {
             const res = await fetch(apiUrl, {
                 headers: { 'User-Agent': BROWSER_HEADERS['User-Agent'] }
             });
-            if (!res.ok) return { mediaType: 'UNKNOWN', title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+            if (!res.ok) {
+                const result = { mediaType: 'UNKNOWN' as const, title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+                console.log("===== RETURN OBJECT =====");
+                console.dir(result, { depth: null });
+                return result;
+            }
 
             const data = await res.json() as any;
             const tweet = data?.tweet;
-            if (!tweet) return { mediaType: 'UNKNOWN', title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+            if (!tweet) {
+                const result = { mediaType: 'UNKNOWN' as const, title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+                console.log("===== RETURN OBJECT =====");
+                console.dir(result, { depth: null });
+                return result;
+            }
 
-            if (tweet.media?.video || tweet.media?.videos?.length > 0) return { mediaType: 'VIDEO', title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+            if (tweet.media?.video || tweet.media?.videos?.length > 0) {
+                const result = { mediaType: 'VIDEO' as const, title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+                console.log("===== RETURN OBJECT =====");
+                console.dir(result, { depth: null });
+                return result;
+            }
 
             const title = tweet.text || 'X (Twitter) Post';
             const author = tweet.author?.name || tweet.author?.screen_name || '';
             const media = tweet.media;
 
-            if (!media || !media.photos || media.photos.length === 0) return { mediaType: 'UNKNOWN', title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+            if (!media || !media.photos || media.photos.length === 0) {
+                const result = { mediaType: 'UNKNOWN' as const, title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+                console.log("===== RETURN OBJECT =====");
+                console.dir(result, { depth: null });
+                return result;
+            }
 
             const images = (media.photos as any[]).map((p, i) => ({
                 id: `tw-${i}`, url: p.url, width: p.width, height: p.height, format: extFromUrl(p.url)
             }));
 
             const isGallery = images.length > 1;
-            return {
-                mediaType: isGallery ? 'GALLERY' : 'IMAGE', title, author, thumbnail: images[0].url,
+            const result = {
+                mediaType: isGallery ? ('GALLERY' as const) : ('IMAGE' as const), title, author, thumbnail: images[0].url,
                 images, duration: 0, source: 'Twitter'
             };
+            console.log("===== RETURN OBJECT =====");
+            console.dir(result, { depth: null });
+            return result;
         } catch (_) {
-            return { mediaType: 'UNKNOWN', title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+            const result = { mediaType: 'UNKNOWN' as const, title: '', author: '', thumbnail: '', duration: 0, source: 'Twitter' };
+            console.log("===== RETURN OBJECT =====");
+            console.dir(result, { depth: null });
+            return result;
         }
     }
 }
