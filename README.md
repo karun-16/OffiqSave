@@ -43,22 +43,6 @@ OffiqSave is a high-performance, open-source universal media extraction and down
 
 ---
 
-## Screenshots
-
-### Hero UI
-![Hero UI](https://raw.githubusercontent.com/karun-16/OffiqSave/main/docs/screenshots/hero-ui.png)
-
-### Downloader Interface
-![Downloader Interface](https://raw.githubusercontent.com/karun-16/OffiqSave/main/docs/screenshots/downloader-interface.png)
-
-### Media Preview
-![Media Preview](https://raw.githubusercontent.com/karun-16/OffiqSave/main/docs/screenshots/media-preview.png)
-
-### Quality Selection
-![Quality Selection](https://raw.githubusercontent.com/karun-16/OffiqSave/main/docs/screenshots/quality-selection.png)
-
----
-
 ## Tech Stack
 
 ### Frontend
