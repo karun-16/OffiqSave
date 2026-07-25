@@ -27,12 +27,12 @@ OffiqSave is a high-performance, open-source universal media extraction and down
 
 | Platform | Images | Galleries | Videos | Audio | Status |
 |---|:---:|:---:|:---:|:---:|:---:|
-| **Instagram** | ✅ | ✅ | ✅ | ✅ | Production Ready |
-| **X (Twitter)** | ✅ | ✅ | ✅ | ✅ | Production Ready |
-| **Facebook** | ✅ | ❌ | ✅ | ❌ | Production Ready |
-| **Pinterest** | ✅ | ✅ | ✅ | ❌ | Production Ready |
-| **YouTube** | ❌ | ❌ | ✅ | ✅ | Production Ready |
-| **Reddit** | ✅ | ✅ | ✅ | ❌ | Production Ready |
+| **Instagram** | ✅ (Single Image) | ✅ (Carousels) | ✅ (Videos & Reels) | ✅ (Audio Extraction) | ✅ Supported |
+| **X (Twitter)** | ✅ (Single Image) | ✅ (Multi-Image) | ✅ (Single & Multi-Video) | ✅ (Audio Extraction) | ✅ Supported |
+| **Facebook** | ✅ (Single Image) | ❌ | ✅ (Videos & Reels) | ✅ (Audio Extraction) | ✅ Supported |
+| **Pinterest** | ✅ (Single Image) | ✅ (Galleries) | ✅ (Videos) | ✅ (Audio Extraction) | ✅ Supported |
+| **YouTube** | ❌ | ❌ | ✅ (Videos & Quality Selection) | ✅ (MP3 & WAV Extraction) | ✅ Supported |
+| **Reddit** | ✅ (Single Image) | ✅ (Galleries) | ✅ (Videos & Animated Media) | ✅ (Audio Extraction) | ✅ Supported |
 
 ---
 
