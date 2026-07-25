@@ -12,14 +12,21 @@ OffiqSave is a high-performance, open-source universal media extraction and down
 
 ## Features
 
-- **Universal Media Extraction**: Native extraction engines and fallback pipelines for social media platforms.
-- **Native Browser Downloads**: Streamlined download token system delivering direct attachment responses to browser clients.
-- **High-Quality Video & Audio**: Full HD, 2K, and 4K video downloads with optional FFmpeg-powered MP3 and WAV audio extraction.
-- **Gallery & Carousel Support**: Multi-image and multi-video post parsing with batch ZIP download generation.
-- **Multiple Quality Selection**: Granular bitrate and resolution selection options powered by unified metadata formatting.
-- **Modern Responsive UI**: Built with Next.js, Tailwind CSS, Lucide icons, and fluid animation states.
-- **Fast Metadata Extraction**: In-memory metadata caching (`ExtractorCache`) delivering sub-millisecond cached responses.
-- **Secure & Efficient Pipeline**: Automatic single-use download tokens, stream piping, and immediate disk cleanup.
+- **Universal Media Downloader**: Unified extraction and routing engine for social platforms.
+- **Download Images**: High-resolution single image extraction and downloading.
+- **Download Galleries**: Multi-image carousel and gallery parsing with batch ZIP downloads.
+- **Download Videos**: Full HD, 2K, and 4K video extraction with audio track multiplexing.
+- **Audio Extraction**: Seamless FFmpeg audio conversion to high-quality MP3 and WAV files.
+- **Multiple Quality Selection**: Granular resolution and bitrate selection options.
+- **Native Browser Downloads**: Single-use token handshake serving direct attachment headers to browsers.
+- **Fast Metadata Extraction**: Rapid post metadata parsing powered by native platform scrapers.
+- **Secure Download Pipeline**: One-time token validation and stream isolation.
+- **Modern Responsive UI**: Built with Next.js, Tailwind CSS, Lucide React, and dynamic state feedback.
+- **FFmpeg Integration**: Server-side audio transcoding and stream multiplexing.
+- **yt-dlp Integration**: Robust fallback engine for complex media formats and video streams.
+- **Concurrent Download Support**: High-throughput non-blocking request handling.
+- **Automatic Temporary File Cleanup**: Immediate disk unlinking upon download response completion.
+- **Metadata Caching**: In-memory `ExtractorCache` providing sub-millisecond repeated request lookups.
 
 ---
 
