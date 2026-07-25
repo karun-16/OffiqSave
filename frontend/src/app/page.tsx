@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link2, Download, CheckCircle, Loader2, PlayCircle, ChevronDown, AlertCircle, Zap, FileVideo, Globe, Shield, RefreshCw } from "lucide-react";
 import axios from "axios";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 // Types
 interface MediaFormat {
@@ -144,7 +146,7 @@ export default function Home() {
     setDownloadingVideos({});
 
     try {
-      const res = await axios.post("http://localhost:4000/api/info", { url });
+      const res = await axios.post(`${API_URL}/api/info`, { url });
       setMediaInfo(res.data);
 
       // Auto-select best quality for single video
@@ -185,7 +187,7 @@ export default function Home() {
     setDownloadStageIdx(3);
 
     try {
-      const response = await fetch("http://localhost:4000/api/download-zip", {
+      const response = await fetch(`${API_URL}/api/download-zip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ images: mediaInfo.images, sourceUrl: url })
@@ -215,7 +217,7 @@ export default function Home() {
     setStatus("downloading");
     setDownloadStageIdx(3);
     try {
-      const response = await fetch("http://localhost:4000/api/download-image", {
+      const response = await fetch(`${API_URL}/api/download-image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageUrl: imgUrl, filename, sourceUrl: url })
@@ -255,7 +257,7 @@ export default function Home() {
       const selectedFormatObj = mediaInfo?.formats?.find((f: any) => f.format_id === selectedQuality);
       const directVideoUrl = selectedFormatObj?.url || mediaInfo?.formats?.[0]?.url;
 
-      let payload: any = {
+      const payload: Record<string, unknown> = {
         url,
         formatId: selectedQuality,
         selectedFormat,
@@ -269,14 +271,14 @@ export default function Home() {
       }
 
       // Step 1: Prepare download and get downloadId
-      const prepRes = await axios.post("http://localhost:4000/api/download/prepare", payload);
+      const prepRes = await axios.post(`${API_URL}/api/download/prepare`, payload);
       const { downloadId } = prepRes.data;
 
       clearInterval(stageInterval);
       setDownloadStageIdx(DOWNLOAD_STAGES.length - 1);
 
       // Step 2: Trigger native browser download manager directly (no Axios Blob buffering)
-      const downloadFileUrl = `http://localhost:4000/api/download/file/${downloadId}`;
+      const downloadFileUrl = `${API_URL}/api/download/file/${downloadId}`;
       window.location.href = downloadFileUrl;
 
       setTimeout(() => setStatus("done"), 1000);
@@ -310,15 +312,7 @@ export default function Home() {
         title: `${sanitizedTitle}_video_${videoIndex + 1}`
       };
 
-      console.log("MULTI VIDEO UI TRACE");
-      console.log("videos.length:", mediaInfo?.videos?.length);
-      console.log("video index:", videoIndex);
-      console.log("video id:", video.id);
-      console.log("formats.length:", video.formats.length);
-      console.log("selected format_id:", selected.format_id);
-      console.log("selected direct URL:", selected.url);
-
-      const response = await axios.post("http://localhost:4000/api/download", payload, {
+      const response = await axios.post(`${API_URL}/api/download`, payload, {
         responseType: 'blob'
       });
 
@@ -328,7 +322,6 @@ export default function Home() {
         (response.data?.type && response.data.type.includes('application/json'))
       ) {
         const text = await response.data.text();
-        console.log("MULTI VIDEO DOWNLOAD BLOB ERROR:", text);
         try {
           const jsonErr = JSON.parse(text);
           setErrorMsg(jsonErr.error || "Download failed.");

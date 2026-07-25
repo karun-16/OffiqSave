@@ -1,12 +1,11 @@
 import { Request, Response } from 'express';
 import { DownloaderService } from '../services/downloaderService';
 import { cleanupFile } from '../utils/cleanup';
-import { HandlerFactory } from '../services/handlers/HandlerFactory';
 import fs from 'fs';
 import path from 'path';
 import { Readable } from 'stream';
 import { instagramReelExtractor } from '../extractors/instagram/InstagramReelExtractor';
-import { metaCache } from '../services/handlers/BaseHandler';
+import { ExtractorCache } from '../common/Cache';
 import NodeCache from 'node-cache';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -131,7 +130,7 @@ export const downloadFile = async (req: Request, res: Response): Promise<void> =
             let targetTitle = title || 'video';
 
             if (!targetVideoUrl && isInstagramReel) {
-                const cachedInfo: any = metaCache.get(url);
+                const cachedInfo: any = ExtractorCache.getMetadata(url);
                 if (cachedInfo && cachedInfo.formats && cachedInfo.formats[0]?.url) {
                     targetVideoUrl = cachedInfo.formats[0].url;
                     targetTitle = cachedInfo.title || targetTitle;
@@ -246,7 +245,7 @@ export const download = async (req: Request, res: Response): Promise<void> => {
             let targetTitle = title || 'video';
 
             if (!targetVideoUrl && isInstagramReel) {
-                const cachedInfo: any = metaCache.get(url);
+                const cachedInfo: any = ExtractorCache.getMetadata(url);
                 if (cachedInfo && cachedInfo.formats && cachedInfo.formats[0]?.url) {
                     targetVideoUrl = cachedInfo.formats[0].url;
                     targetTitle = cachedInfo.title || targetTitle;
@@ -327,8 +326,7 @@ export const downloadImage = async (req: Request, res: Response): Promise<void> 
             return;
         }
 
-        const handler = sourceUrl ? HandlerFactory.getHandler(sourceUrl) : HandlerFactory.getHandler(imageUrl);
-        const filePath = await handler.downloadImageDirect(imageUrl);
+        const filePath = await DownloaderService.downloadImageDirect(imageUrl);
 
         const ext = path.extname(filePath).replace('.', '') || 'jpg';
         const safeFilename = filename || `image.${ext}`;
@@ -421,32 +419,15 @@ export const downloadZip = async (req: Request, res: Response): Promise<void> =>
 
         archive.pipe(res);
 
-        const handler = sourceUrl ? HandlerFactory.getHandler(sourceUrl) : null;
-
         for (let i = 0; i < images.length; i++) {
             const img = images[i];
             try {
-                if (handler) {
-                    const filePath = await handler.downloadImageDirect(img.url);
-                    const ext = path.extname(filePath).replace('.', '') || img.format || 'jpg';
-                    const name = img.filename || `image-${i + 1}.${ext}`;
-                    const buffer = fs.readFileSync(filePath);
-                    archive.append(buffer, { name });
-                    cleanupFile(filePath);
-                } else {
-                    const response = await fetch(img.url, {
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                        }
-                    });
-                    if (response.ok && response.body) {
-                        const ext = img.format || 'jpg';
-                        const name = img.filename || `image-${i + 1}.${ext}`;
-                        const arrayBuffer = await response.arrayBuffer();
-                        const buffer = Buffer.from(arrayBuffer);
-                        archive.append(buffer, { name });
-                    }
-                }
+                const filePath = await DownloaderService.downloadImageDirect(img.url);
+                const ext = path.extname(filePath).replace('.', '') || img.format || 'jpg';
+                const name = img.filename || `image-${i + 1}.${ext}`;
+                const buffer = fs.readFileSync(filePath);
+                archive.append(buffer, { name });
+                cleanupFile(filePath);
             } catch (err) {
                 console.error(`[Controller] Failed to fetch image ${i + 1} for ZIP: ${img.url}`, err);
             }

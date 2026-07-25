@@ -52,7 +52,10 @@ export class PlatformClassifier {
     }
 
     // Reddit
-    if (hostname.includes('reddit.com') || hostname.includes('redd.it')) {
+    if (
+      hostname === 'reddit.com' || hostname.endsWith('.reddit.com') ||
+      hostname === 'redd.it' || hostname.endsWith('.redd.it')
+    ) {
       return 'Reddit';
     }
 

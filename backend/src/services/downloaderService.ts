@@ -178,9 +178,10 @@ export class DownloaderService {
         console.log(`[TRACE DOWNLOAD] Selected format_id: ${match.format_id || match.id}, ext: ${ext}, acodec: ${match.acodec}, vcodec: ${match.vcodec}, abr: ${match.abr}, bitrate: ${match.bitrate}`);
         
         const isYouTube = info.platform === 'YouTube' || url.includes('youtube.com') || url.includes('youtu.be');
+        const isRedditVideo = (info.platform === 'Reddit' || url.includes('reddit.com') || url.includes('redd.it')) && (info.mediaType === 'VIDEO');
 
         let localPath = '';
-        if (isYouTube) {
+        if (isYouTube || isRedditVideo) {
             if (isAudioReq) {
                 const selectedFormatId = match.format_id || match.id || 'bestaudio';
                 localPath = await this.downloadWithYtDlp(url, selectedFormatId);
@@ -191,7 +192,7 @@ export class DownloaderService {
                 localPath = await this.downloadWithYtDlp(url, formatExpr);
             }
         } else {
-            // Non-YouTube platforms (Instagram, Twitter/X, Facebook, Pinterest) remain 100% unchanged
+            // Non-YouTube / non-Reddit-video platforms remain 100% unchanged
             if (!match.url) {
                 throw new Error(`No downloadable media URL found for formatId: ${formatId}`);
             }
@@ -208,5 +209,11 @@ export class DownloaderService {
 
     static convertMedia(inputPath: string, targetFormat: string): Promise<string> {
         return FFmpegPipeline.convert(inputPath, targetFormat as SupportedFormat);
+    }
+
+    static async downloadImageDirect(imageUrl: string): Promise<string> {
+        const extMatch = imageUrl.match(/\.([a-zA-Z0-9]{2,5})(?:\?.*)?$/);
+        const ext = extMatch ? extMatch[1].toLowerCase() : 'jpg';
+        return DownloaderPipeline.downloadToLocalFile(imageUrl, ext === 'jpeg' ? 'jpg' : ext);
     }
 }

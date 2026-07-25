@@ -335,32 +335,23 @@ export class InstagramReelExtractor {
    * STEP 9 & 11: Main extract() entry point with full logging & error handling
    */
   public async extract(url: string): Promise<InstagramReelResult> {
-    console.log(`[InstagramReelExtractor] Starting extraction for: ${url}`);
-
     // STEP 1: Normalize URL
     const { canonicalUrl, shortcode } = this.normalizeUrl(url);
-    console.log(`[InstagramReelExtractor] Stage 1 OK: Shortcode=${shortcode}, Canonical=${canonicalUrl}`);
 
     // STEP 2: Fetch HTML
     const html = await this.fetchHtml(canonicalUrl);
-    console.log(`[InstagramReelExtractor] Stage 2 OK: Fetched HTML length=${html.length} chars`);
 
     // STEP 3: Save Debug HTML
     this.saveDebugHtml(html);
 
     // STEP 4: Discover JSON Blocks
-    const { jsonObjects, rawBlocksCount } = this.discoverJsonBlocks(html);
-    console.log(`[InstagramReelExtractor] Stage 4 OK: Found ${jsonObjects.length} parsed JSON objects (from ${rawBlocksCount} candidate blocks)`);
+    const { jsonObjects } = this.discoverJsonBlocks(html);
 
     // STEP 5: Traverse JSON recursively
-    const { videoCandidates, visitedCount, metadata } = this.traverseJson(jsonObjects);
-    console.log(`[InstagramReelExtractor] Stage 5 OK: Visited ${visitedCount} recursive objects. Found ${videoCandidates.length} video candidate(s)`);
+    const { videoCandidates, metadata } = this.traverseJson(jsonObjects);
 
     // STEP 6: Select highest quality video
     const bestVideo = this.selectBestMp4(videoCandidates);
-    const chosenRes = bestVideo.width && bestVideo.height ? `${bestVideo.width}x${bestVideo.height}` : 'unknown';
-    console.log(`[InstagramReelExtractor] Stage 6 OK: Chosen MP4 Resolution=${chosenRes}`);
-    console.log(`[InstagramReelExtractor] Stage 6 OK: Chosen MP4 URL=${bestVideo.url.substring(0, 100)}...`);
 
     // STEP 7 & 8: Build result object
     const result: InstagramReelResult = {
@@ -374,7 +365,6 @@ export class InstagramReelExtractor {
       videoUrl: bestVideo.url
     };
 
-    console.log(`[InstagramReelExtractor] Extraction complete for Reel [${result.shortcode}]`);
     return result;
   }
 }

@@ -111,8 +111,6 @@ export class TwitterExtractor implements MediaExtractor {
         }));
       }
 
-      console.log("===== RETURN OBJECT =====");
-      console.dir(mediaInfo, { depth: null });
       return mediaInfo;
     } catch (err: any) {
       if (err instanceof ExtractorError) throw err;
