@@ -384,51 +384,51 @@ export default function Home() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="fixed top-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-5xl h-16 flex justify-between items-center px-6 z-50 bg-bg-card/40 backdrop-blur-md rounded-2xl border border-border-card shadow-lg"
+        className="fixed top-3 sm:top-6 left-1/2 -translate-x-1/2 w-[calc(100%-1.5rem)] sm:w-[calc(100%-2rem)] max-w-5xl h-14 sm:h-16 flex justify-between items-center px-4 sm:px-6 z-50 bg-bg-card/40 backdrop-blur-md rounded-2xl border border-border-card shadow-lg"
       >
-        <div className="flex items-center gap-4 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-          <img src="/logo.png" alt="OffiqSave Logo" className="w-10 h-10 md:w-12 md:h-12 object-contain drop-shadow-[0_0_8px_rgba(0,212,255,0.3)]" />
-          <span className="font-bold text-xl md:text-2xl tracking-tight text-text-primary hidden sm:block">OffiqSave</span>
+        <div className="flex items-center gap-3 sm:gap-4 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+          <img src="/logo.png" alt="OffiqSave Logo" className="w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 object-contain drop-shadow-[0_0_8px_rgba(0,212,255,0.3)]" />
+          <span className="font-bold text-lg sm:text-xl md:text-2xl tracking-tight text-text-primary">OffiqSave</span>
         </div>
-        <nav className="flex gap-6 text-sm md:text-base text-text-secondary font-medium">
-          <a href="#features" className="hover:text-text-primary transition-colors">Features</a>
-          <a href="#faq" className="hover:text-text-primary transition-colors">FAQ</a>
+        <nav className="flex gap-4 sm:gap-6 text-sm md:text-base text-text-secondary font-medium">
+          <a href="#features" className="hover:text-text-primary transition-colors p-1">Features</a>
+          <a href="#faq" className="hover:text-text-primary transition-colors p-1">FAQ</a>
         </nav>
       </motion.div>
 
-      <main className="flex-1 flex flex-col items-center justify-start px-4 sm:px-8 pt-36 sm:pt-48 md:pt-56 pb-16 w-full max-w-5xl mx-auto min-h-screen">
+      <main className="flex-1 flex flex-col items-center justify-start px-3 sm:px-8 pt-28 sm:pt-40 md:pt-52 pb-12 sm:pb-16 w-full max-w-5xl mx-auto min-h-screen">
 
         {/* Main Hero */}
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.7, delay: 0.1, ease: "easeOut" }}
-          className="w-full max-w-3xl flex flex-col items-center text-center mt-4 sm:mt-8"
+          className="w-full max-w-3xl flex flex-col items-center text-center mt-2 sm:mt-8"
         >
-          <h1 className="text-5xl sm:text-6xl md:text-8xl font-black tracking-tighter mb-8 leading-[1.1]">
+          <h1 className="text-3xl sm:text-5xl md:text-8xl font-black tracking-tighter mb-4 sm:mb-8 leading-[1.15] sm:leading-[1.1]">
             Download & Convert <br className="hidden md:block" />
             Media <span className="text-brand-primary">Instantly</span>
           </h1>
-          <p className="text-lg md:text-xl font-medium text-text-secondary mb-12 sm:mb-16 max-w-2xl mx-auto px-4 leading-relaxed">
+          <p className="text-base sm:text-lg md:text-xl font-medium text-text-secondary mb-8 sm:mb-16 max-w-2xl mx-auto px-2 sm:px-4 leading-relaxed">
             One link. Instant downloads for videos, audio, and photos.
           </p>
 
           {/* Input Box */}
           <form onSubmit={handlePasteAndFetch} className="w-full relative group">
-            <div className="relative glass-panel hover:bg-bg-card-hover rounded-2xl flex items-center p-2 pl-6 transition-all duration-500 flex-col sm:flex-row shadow-[0_8px_30px_rgba(0,0,0,0.3)] focus-within:border-brand-primary/50 focus-within:shadow-[0_0_20px_rgba(0,212,255,0.15)]">
+            <div className="relative glass-panel hover:bg-bg-card-hover rounded-2xl flex items-center p-2 sm:p-2 sm:pl-6 transition-all duration-500 flex-col sm:flex-row shadow-[0_8px_30px_rgba(0,0,0,0.3)] focus-within:border-brand-primary/50 focus-within:shadow-[0_0_20px_rgba(0,212,255,0.15)]">
               <Link2 className="w-6 h-6 text-text-secondary shrink-0 hidden sm:block" />
               <input
                 type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="Paste your media URL here..."
-                className="flex-1 w-full bg-transparent border-none outline-none text-text-primary px-4 py-4 text-base sm:text-lg placeholder:text-text-muted"
+                className="flex-1 w-full bg-transparent border-none outline-none text-text-primary px-3 sm:px-4 py-3 sm:py-4 text-sm sm:text-lg placeholder:text-text-muted"
                 disabled={status === "loading" || status === "downloading"}
               />
               <button
                 type="submit"
                 disabled={!url.trim() || status === "loading" || status === "downloading"}
-                className="w-full sm:w-auto mt-2 sm:mt-0 bg-brand-primary hover:bg-brand-hover text-text-primary px-8 py-4 rounded-xl font-medium transition-all shadow-lg shadow-brand-primary/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shrink-0"
+                className="w-full sm:w-auto mt-2 sm:mt-0 bg-brand-primary hover:bg-brand-hover text-text-primary px-6 sm:px-8 py-3.5 sm:py-4 min-h-[44px] rounded-xl font-medium transition-all shadow-lg shadow-brand-primary/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shrink-0 text-sm sm:text-base"
               >
                 {status === "loading" ? <Loader2 className="w-5 h-5 animate-spin" /> : "Fetch"}
               </button>
@@ -641,7 +641,7 @@ export default function Home() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className="glass-panel rounded-3xl p-6 md:p-8 flex flex-col lg:flex-row gap-8 items-stretch w-full max-w-4xl mx-auto shadow-2xl shadow-brand-primary/5 border border-white/10 overflow-hidden"
+                  className="glass-panel rounded-3xl p-4 sm:p-6 md:p-8 flex flex-col lg:flex-row gap-6 sm:gap-8 items-stretch w-full max-w-4xl mx-auto shadow-2xl shadow-brand-primary/5 border border-white/10 overflow-hidden"
                 >
                   {/* Thumbnail */}
                   <div className="w-full lg:w-[300px] lg:min-w-[300px] lg:max-w-[300px] flex flex-col gap-4 shrink-0 grow-0">
@@ -825,18 +825,18 @@ export default function Home() {
                           <div className="text-center mb-2">
                             <span className="text-xs font-bold text-text-secondary uppercase tracking-wider">Image {currentImageIndex + 1} of {mediaInfo.images?.length}</span>
                           </div>
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                             <button
                               onClick={() => handleImageDownload(mediaInfo.images![currentImageIndex].url, mediaInfo.images![currentImageIndex].id + '.' + mediaInfo.images![currentImageIndex].format)}
-                              className="w-full bg-bg-input hover:bg-bg-card-hover border border-white/5 hover:border-white/10 text-text-primary px-4 py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 text-sm"
+                              className="w-full bg-bg-input hover:bg-bg-card-hover border border-white/5 hover:border-white/10 text-text-primary px-3 sm:px-4 py-3.5 sm:py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 text-xs sm:text-sm min-h-[44px]"
                             >
-                              <Download className="w-4 h-4" /> Current Image
+                              <Download className="w-4 h-4 shrink-0" /> Current Image
                             </button>
                             <button
                               onClick={handleZipDownload}
-                              className="w-full bg-gradient-to-b from-[#37E0FF] to-[#00D4FF] hover:from-[#5DE8FF] hover:to-[#00BCE6] text-[#0B0C0F] px-4 py-4 rounded-xl font-bold transition-all shadow-[0_4px_20px_rgba(0,212,255,0.2)] hover:-translate-y-1 active:translate-y-0 flex items-center justify-center gap-2 text-sm"
+                              className="w-full bg-gradient-to-b from-[#37E0FF] to-[#00D4FF] hover:from-[#5DE8FF] hover:to-[#00BCE6] text-[#0B0C0F] px-3 sm:px-4 py-3.5 sm:py-4 rounded-xl font-bold transition-all shadow-[0_4px_20px_rgba(0,212,255,0.2)] hover:-translate-y-1 active:translate-y-0 flex items-center justify-center gap-2 text-xs sm:text-sm min-h-[44px]"
                             >
-                              <Download className="w-4 h-4" /> Download All (.zip)
+                              <Download className="w-4 h-4 shrink-0" /> Download All (.zip)
                             </button>
                           </div>
                         </>
