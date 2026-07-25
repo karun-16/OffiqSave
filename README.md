@@ -1,4 +1,7 @@
-# OffiqSave
+<h1 align="center">
+  <img src="assets/logo.png" alt="OffiqSave Logo" width="48" valign="middle" />
+  OffiqSave
+</h1>
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
