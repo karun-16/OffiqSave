@@ -1,32 +1,33 @@
 # OffiqSave
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org/)
+[![Express](https://img.shields.io/badge/Express-4.x-lightgrey.svg)](https://expressjs.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub Stars](https://img.shields.io/github/stars/karun-16/OffiqSave?style=social)](https://github.com/karun-16/OffiqSave)
 
-OffiqSave is a high-performance, open-source universal media extraction and download platform. Engineered with a decoupled Next.js web client and an Express-powered backend engine, OffiqSave enables users to seamlessly extract, preview, and download high-resolution images, multi-item galleries, reels, videos, and converted audio streams from top social platforms without watermarks or quality loss.
+OffiqSave is a modern universal media downloader supporting multiple social media platforms with high-quality downloads, gallery support, audio extraction, and a secure native download pipeline.
 
 ---
 
 ## Features
 
-- **Universal Media Downloader**: Unified extraction and routing engine for social platforms.
-- **Download Images**: High-resolution single image extraction and downloading.
-- **Download Galleries**: Multi-image carousel and gallery parsing with batch ZIP downloads.
-- **Download Videos**: Full HD, 2K, and 4K video extraction with audio track multiplexing.
-- **Audio Extraction**: Seamless FFmpeg audio conversion to high-quality MP3 and WAV files.
-- **Multiple Quality Selection**: Granular resolution and bitrate selection options.
-- **Native Browser Downloads**: Single-use token handshake serving direct attachment headers to browsers.
-- **Fast Metadata Extraction**: Rapid post metadata parsing powered by native platform scrapers.
-- **Secure Download Pipeline**: One-time token validation and stream isolation.
-- **Modern Responsive UI**: Built with Next.js, Tailwind CSS, Lucide React, and dynamic state feedback.
-- **FFmpeg Integration**: Server-side audio transcoding and stream multiplexing.
-- **yt-dlp Integration**: Robust fallback engine for complex media formats and video streams.
-- **Concurrent Download Support**: High-throughput non-blocking request handling.
-- **Automatic Temporary File Cleanup**: Immediate disk unlinking upon download response completion.
-- **Metadata Caching**: In-memory `ExtractorCache` providing sub-millisecond repeated request lookups.
+- **Universal media downloader**: Unified extraction engine supporting multiple social media platforms.
+- **Download images**: Extract and download high-resolution single images.
+- **Download galleries**: Multi-item carousel and gallery parsing with batch ZIP download generation.
+- **Download videos**: HD, 2K, and 4K video extraction with synchronized audio tracks.
+- **Audio extraction**: FFmpeg-powered conversion to high-quality MP3 and WAV audio formats.
+- **Multiple quality selection**: Granular resolution, bitrate, and format selection options.
+- **Native browser downloads**: Single-use token handshake delivering direct attachment responses to browsers.
+- **Secure download pipeline**: Isolated stream execution and token validation.
+- **Metadata caching**: In-memory caching delivering fast repeated request lookups.
+- **Automatic temporary file cleanup**: Immediate disk unlinking upon stream transfer completion.
+- **Responsive modern UI**: Next.js client built with Tailwind CSS, Lucide icons, and fluid UI states.
+- **FFmpeg integration**: Server-side audio conversion and stream multiplexing.
+- **yt-dlp integration**: Fallback processing engine for complex media sources.
+- **Concurrent download support**: High-throughput non-blocking request handling.
+- **Modular extractor architecture**: Extensible per-platform extractor pattern.
 
 ---
 
@@ -34,33 +35,39 @@ OffiqSave is a high-performance, open-source universal media extraction and down
 
 | Platform | Images | Galleries | Videos | Audio | Status |
 |---|:---:|:---:|:---:|:---:|:---:|
-| **Instagram** | ✅ (Single Image) | ✅ (Carousels) | ✅ (Videos & Reels) | ✅ (Audio Extraction) | ✅ Supported |
-| **X (Twitter)** | ✅ (Single Image) | ✅ (Multi-Image) | ✅ (Single & Multi-Video) | ✅ (Audio Extraction) | ✅ Supported |
-| **Facebook** | ✅ (Single Image) | ❌ | ✅ (Videos & Reels) | ✅ (Audio Extraction) | ✅ Supported |
-| **Pinterest** | ✅ (Single Image) | ✅ (Galleries) | ✅ (Videos) | ✅ (Audio Extraction) | ✅ Supported |
-| **YouTube** | ❌ | ❌ | ✅ (Videos & Quality Selection) | ✅ (MP3 & WAV Extraction) | ✅ Supported |
-| **Reddit** | ✅ (Single Image) | ✅ (Galleries) | ✅ (Videos & Animated Media) | ✅ (Audio Extraction) | ✅ Supported |
+| **Instagram** | ✅ | ✅ | ✅ | ✅ | Supported |
+| **X (Twitter)** | ✅ | ✅ | ✅ | ✅ | Supported |
+| **Facebook** | ✅ | ❌ | ✅ | ✅ | Supported |
+| **Pinterest** | ✅ | ✅ | ✅ | ✅ | Supported |
+| **YouTube** | ❌ | ❌ | ✅ | ✅ | Supported |
+| **Reddit** | ✅ | ✅ | ✅ | ✅ | Supported |
+
+---
+
+## Live Demo
+
+Website  
+*Coming Soon...*
 
 ---
 
 ## Tech Stack
 
 ### Frontend
-- **Framework**: [Next.js 15](https://nextjs.org/) (App Router)
-- **Library**: [React 19](https://react.dev/)
-- **Language**: [TypeScript](https://www.typescriptlang.org/)
-- **Styling**: [Tailwind CSS 3](https://tailwindcss.com/)
-- **Icons & UI**: [Lucide React](https://lucide.dev/)
+- **Next.js** (App Router)
+- **React**
+- **TypeScript**
+- **Tailwind CSS**
+- **Framer Motion**
 
 ### Backend
-- **Runtime**: [Node.js 18+](https://nodejs.org/)
-- **Framework**: [Express](https://expressjs.com/)
-- **Language**: [TypeScript](https://www.typescriptlang.org/)
-- **Caching**: NodeCache (`ExtractorCache`)
+- **Node.js**
+- **Express**
+- **TypeScript**
 
 ### Media Processing
-- **Engine**: [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-- **Transcoding**: [FFmpeg](https://ffmpeg.org/) & [fluent-ffmpeg](https://github.com/fluent-ffmpeg/node-fluent-ffmpeg)
+- **yt-dlp**
+- **FFmpeg**
 
 ---
 
@@ -71,63 +78,64 @@ OffiqSave is a high-performance, open-source universal media extraction and down
 - npm `v9.0.0` or higher
 - FFmpeg installed and available on system `PATH`
 
-### Step 1: Clone the Repository
+### Step 1: Clone Repository
 ```bash
 git clone https://github.com/karun-16/OffiqSave.git
 cd OffiqSave
 ```
 
-### Step 2: Setup Backend
+### Step 2: Install Backend Dependencies
 ```bash
 cd backend
 npm install
 ```
 
-### Step 3: Setup Frontend
+### Step 3: Install Frontend Dependencies
 ```bash
 cd ../frontend
 npm install
 ```
 
-### Step 4: Run Application
+### Step 4: Start Services
 
-**Start Backend Server (Port 4000):**
+**Start Backend Server:**
 ```bash
 cd backend
 npm run dev
 ```
 
-**Start Frontend Development Client (Port 3000):**
+**Start Frontend Client:**
 ```bash
 cd frontend
 npm run dev
 ```
-
-Open `http://localhost:3000` in your web browser to start using OffiqSave.
 
 ---
 
 ## Environment Variables
 
 ### Frontend (`frontend/.env.local`)
-```env
-NEXT_PUBLIC_API_URL=http://localhost:4000
-```
+
+| Variable | Description | Default |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | Base URL of the backend API server | `http://localhost:4000` |
 
 ### Backend (`backend/.env`)
-```env
-PORT=4000
-FRONTEND_URL=http://localhost:3000
-```
+
+| Variable | Description | Default |
+|---|---|---|
+| `PORT` | HTTP port for the Express backend server | `4000` |
+| `FRONTEND_URL` | Allowed CORS origin URL for frontend client | `http://localhost:3000` |
 
 ---
 
 ## Usage
 
-1. **Paste URL**: Insert any supported social media post URL into the main search input bar.
-2. **Fetch Media**: Click **Fetch** to analyze the post and retrieve media metadata.
-3. **Choose Quality**: Select your desired format (Video resolution, MP3/WAV Audio, or Image).
-4. **Download**: Click **Download** to stream the file directly to your device via native browser download headers.
+1. **Paste media URL**: Enter a valid media link from a supported platform into the input field.
+2. **Fetch media**: Click the fetch button to parse metadata and available download streams.
+3. **Preview media**: Review media details, title, thumbnail, and content preview.
+4. **Select quality or format**: Choose your target video quality or audio extraction format (MP3/WAV).
+5. **Download**: Click download to initiate direct browser file saving.
 
 ---
 
@@ -137,33 +145,33 @@ FRONTEND_URL=http://localhost:3000
 OffiqSave/
 ├── backend/
 │   ├── src/
-│   │   ├── classifier/         # Hostname & platform URL classification logic
-│   │   ├── common/             # Metadata caching (ExtractorCache)
-│   │   ├── controllers/        # Express API request controllers (mediaController)
-│   │   ├── downloader/         # Unified Downloader Engine & yt-dlp execution
-│   │   ├── extractors/         # Platform Extractor implementation registry
+│   │   ├── classifier/         # Hostname classification
+│   │   ├── common/             # Metadata caching
+│   │   ├── controllers/        # Request controllers
+│   │   ├── downloader/         # Execution engine
+│   │   ├── extractors/         # Platform extractors
 │   │   │   ├── facebook/
 │   │   │   ├── instagram/
 │   │   │   ├── pinterest/
 │   │   │   ├── reddit/
 │   │   │   ├── twitter/
 │   │   │   └── youtube/
-│   │   ├── ffmpeg/             # Audio transcoding & format conversion
-│   │   ├── router/             # Extractor routing engine (PlatformRouter)
-│   │   ├── routes/             # API route definitions
+│   │   ├── ffmpeg/             # Audio transcoding
+│   │   ├── router/             # Extractor routing engine
+│   │   ├── routes/             # API endpoints
 │   │   ├── services/           # DownloaderService orchestration
-│   │   ├── tests/              # Verification & regression test suites
-│   │   ├── utils/              # Disk file cleanup & helper utilities
+│   │   ├── tests/              # Verification test suites
+│   │   ├── utils/              # Helper utilities
 │   │   └── index.ts            # Server entry point
 │   ├── package.json
 │   └── tsconfig.json
 ├── frontend/
 │   ├── src/
 │   │   ├── app/
-│   │   │   ├── globals.css     # Design system & Tailwind styles
-│   │   │   ├── layout.tsx      # Root application layout
-│   │   │   └── page.tsx        # Interactive downloader client dashboard
-│   │   └── lib/                # Utility helpers
+│   │   │   ├── globals.css     # Global styles
+│   │   │   ├── layout.tsx      # App layout
+│   │   │   └── page.tsx        # Downloader client interface
+│   │   └── lib/                # Client utilities
 │   ├── package.json
 │   └── tsconfig.json
 └── README.md
@@ -173,61 +181,61 @@ OffiqSave/
 
 ## Architecture
 
-OffiqSave utilizes a decoupled, layered pipeline designed for speed and reliability:
-
-- **Platform Router**: Intercepts incoming target URLs, resolves canonical hostnames, and dispatches extraction tasks to matching platform handlers without domain collisions.
-- **Extractor Registry**: Manages registered platform extractors (Instagram, Twitter, YouTube, Reddit, Pinterest, Facebook). Executes high-speed native scrapers first and falls back gracefully to `yt-dlp` if required.
-- **MediaInfo Normalizer**: Unifies diverse platform payloads into a standard JSON schema containing thumbnails, media types, resolution options, and format specifications.
-- **Download Token Pipeline**: Generates single-use UUID download tokens upon request preparation, ensuring secure client-server handshake for stream execution.
-- **FFmpeg & yt-dlp Integration**: Handles audio extraction (m4a/webm to MP3/WAV), video stream merging (video+audio DASH formats), and multi-item gallery ZIP generation on the fly.
+- **Platform Router**: Classifies incoming hostnames and routes requests to the registered extractor.
+- **Extractor Registry**: Manages platform handlers, executing native parsers with fallback to `yt-dlp`.
+- **MediaInfo Contract**: Normalizes extraction responses into a unified JSON format for client rendering.
+- **Download Pipeline**: Issues single-use download tokens, managing stream generation and response piping.
+- **FFmpeg**: Transcodes media streams into MP3/WAV audio and multiplexes DASH streams.
+- **yt-dlp Integration**: Handles stream extraction for complex video formats and fallback scenarios.
 
 ---
 
-## Performance & Optimization
+## Performance
 
-- **Native Browser Downloads**: Files are served directly via `Content-Disposition: attachment` headers, triggering native browser saving.
-- **In-Memory Caching**: `ExtractorCache` caches parsed post metadata to eliminate redundant external HTTP requests on secondary downloads.
-- **Automatic Disk Cleanup**: Downloaded temporary files and converted media streams are automatically unlinked upon stream completion.
-- **High Concurrency**: Tested and verified under 20+ concurrent and 50+ sequential download loads with stable memory footprint.
+- **Native browser downloads**: Attachment content disposition headers deliver direct file downloads.
+- **Metadata caching**: `ExtractorCache` caches post metadata to eliminate redundant extraction overhead.
+- **Concurrent downloads**: Non-blocking asynchronous job processing handles multiple requests simultaneously.
+- **Temporary file cleanup**: Immediate disk unlinking upon response stream completion prevents storage accumulation.
+- **Secure streaming pipeline**: Token handshake ensures validated stream delivery.
 
 ---
 
 ## Roadmap
 
-### v1.0 (Current Release)
-- ✅ Instagram (Image, Carousel, Reel, Video, Audio)
-- ✅ Twitter / X (Image, Gallery, Video, Audio)
-- ✅ Facebook (Image, Reel, Video)
-- ✅ Pinterest (Image, Gallery, Video)
-- ✅ YouTube (Video, Quality Options, MP3, WAV)
-- ✅ Reddit (Image, Gallery, Video, Animated Media)
+### v1.0
+- ✅ Instagram
+- ✅ X (Twitter)
+- ✅ Facebook
+- ✅ Pinterest
+- ✅ YouTube
+- ✅ Reddit
 
-### v1.1 (Planned)
-- ⏳ Threads support
-- ⏳ LinkedIn media support
-- ⏳ Vimeo support
-- ⏳ Dailymotion support
+### v1.1
+- ⏳ Threads
+- ⏳ LinkedIn
+- ⏳ Vimeo
+- ⏳ Dailymotion
 
 ---
 
 ## Contributing
 
-Contributions are welcome! If you'd like to report a bug or suggest a feature, please follow these steps:
+Contributions are welcome! To contribute:
 
 1. Fork the repository.
-2. Create a new feature branch (`git checkout -b feature/AmazingFeature`).
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4. Push to the branch (`git checkout origin feature/AmazingFeature`).
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`).
+3. Commit your changes (`git commit -m 'Add AmazingFeature'`).
+4. Push to your branch (`git push origin feature/AmazingFeature`).
 5. Open a Pull Request.
 
 ---
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
 ## Author
 
-Created and maintained by **[karun-16](https://github.com/karun-16)**.
+GitHub: [https://github.com/karun-16](https://github.com/karun-16)
