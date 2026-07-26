@@ -127,6 +127,8 @@ export default function Home() {
 
   const hasTriggeredDownloadRef = useRef(false);
 
+  const [fetchMessage, setFetchMessage] = useState("Getting media information...");
+
   // Single Video Selection State
   const [selectedFormat, setSelectedFormat] = useState("video");
   const [selectedAudioExt, setSelectedAudioExt] = useState("mp3");
@@ -141,14 +143,25 @@ export default function Home() {
     if (!url.trim()) return;
 
     setStatus("loading");
+    setFetchMessage("Getting media information...");
     setErrorMsg("");
     setMediaInfo(null);
     setDownloadStageIdx(0);
     setMultiVideoQualities({});
     setDownloadingVideos({});
 
+    const timer8 = setTimeout(() => {
+      setFetchMessage("Still working — YouTube is taking longer than usual.");
+    }, 8000);
+
+    const timer20 = setTimeout(() => {
+      setFetchMessage("Almost there — please keep this tab open.");
+    }, 20000);
+
     try {
       const res = await axios.post(`${API_URL}/api/info`, { url });
+      clearTimeout(timer8);
+      clearTimeout(timer20);
       setMediaInfo(res.data);
 
       // Auto-select best quality for single video
@@ -174,6 +187,8 @@ export default function Home() {
 
       setStatus("ready");
     } catch (err: any) {
+      clearTimeout(timer8);
+      clearTimeout(timer20);
       if (!err.response) {
         setErrorMsg("Network Error: Could not connect to the backend server.");
       } else {
@@ -530,6 +545,10 @@ export default function Home() {
                 </div>
 
                 <div className="flex-1 flex flex-col w-full gap-6 mt-2 md:mt-0">
+                  <div className="flex items-center gap-3 text-brand-primary font-medium text-sm sm:text-base mb-2">
+                    <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                    <span>{fetchMessage}</span>
+                  </div>
                   <div className="space-y-4">
                     <div className="h-4 w-24 bg-white/5 rounded-full animate-pulse" />
                     <div className="space-y-2">
