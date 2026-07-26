@@ -151,8 +151,11 @@ export class DownloaderService {
             match = info.formats?.find((f: any) => f.acodec && f.acodec !== 'none');
         }
 
-        if (!match && !isAudioReq) {
-            match = info.formats?.find((f: any) => f.vcodec && f.vcodec !== 'none');
+        const isYouTube = info.platform === 'YouTube' || url.includes('youtube.com') || url.includes('youtu.be');
+        const isRedditVideo = (info.platform === 'Reddit' || url.includes('reddit.com') || url.includes('redd.it')) && (info.mediaType === 'VIDEO');
+
+        if ((!match || match.acodec === 'none') && isAudioReq && (isYouTube || isRedditVideo)) {
+            match = { id: 'bestaudio/best', format_id: 'bestaudio/best', acodec: 'audio', vcodec: 'none' };
         }
 
         if (!match && info.formats && info.formats.length > 0) {
@@ -170,20 +173,17 @@ export class DownloaderService {
         }
 
         // SAFETY CHECK: If audio requested but selected format has no audio
-        if (isAudioReq && (!match.acodec || match.acodec === 'none')) {
+        if (isAudioReq && (!match.acodec || match.acodec === 'none') && !isYouTube && !isRedditVideo) {
             throw new Error(`Selected format (${match.format_id || match.id}) contains no audio stream (acodec is none).`);
         }
 
         const ext = match.ext || (match.acodec && match.acodec !== 'none' ? 'm4a' : 'mp4');
         console.log(`[TRACE DOWNLOAD] Selected format_id: ${match.format_id || match.id}, ext: ${ext}, acodec: ${match.acodec}, vcodec: ${match.vcodec}, abr: ${match.abr}, bitrate: ${match.bitrate}`);
-        
-        const isYouTube = info.platform === 'YouTube' || url.includes('youtube.com') || url.includes('youtu.be');
-        const isRedditVideo = (info.platform === 'Reddit' || url.includes('reddit.com') || url.includes('redd.it')) && (info.mediaType === 'VIDEO');
 
         let localPath = '';
         if (isYouTube || isRedditVideo) {
             if (isAudioReq) {
-                const selectedFormatId = match.format_id || match.id || 'bestaudio';
+                const selectedFormatId = (match && match.acodec && match.acodec !== 'none') ? (match.format_id || match.id) : 'bestaudio/best';
                 localPath = await this.downloadWithYtDlp(url, selectedFormatId);
             } else {
                 const selectedFormatId = match.format_id || match.id || 'best';

@@ -261,13 +261,14 @@ export default function Home() {
         url,
         formatId: selectedQuality,
         selectedFormat,
-        videoUrl: directVideoUrl,
         title: mediaInfo?.title
       };
 
       if (selectedFormat === "audio") {
         payload.formatId = 'bestaudio/best';
         payload.targetFormat = selectedAudioExt.replace(/_.*/, '');
+      } else {
+        payload.videoUrl = directVideoUrl;
       }
 
       // Step 1: Prepare download and get downloadId
@@ -730,9 +731,20 @@ export default function Home() {
                                     className="w-full appearance-none bg-bg-input border border-white/10 hover:border-white/20 rounded-xl pl-4 pr-12 py-3 outline-none focus:border-brand-primary/50 transition-colors cursor-pointer text-sm font-medium"
                                     value={selectedFormat}
                                     onChange={(e) => {
-                                      setSelectedFormat(e.target.value);
-                                      if (e.target.value === "audio") {
+                                      const newFmt = e.target.value;
+                                      setSelectedFormat(newFmt);
+                                      if (newFmt === "audio") {
                                         setSelectedAudioExt("mp3");
+                                        setSelectedQuality("bestaudio/best");
+                                      } else {
+                                        if (mediaInfo?.formats && mediaInfo.formats.length > 0) {
+                                          const videoFormats = mediaInfo.formats.filter((f: any) => f.vcodec !== 'none');
+                                          if (videoFormats.length > 0) {
+                                            setSelectedQuality(videoFormats[videoFormats.length - 1].format_id || 'mp4_best');
+                                          } else {
+                                            setSelectedQuality(mediaInfo.formats[0].format_id || 'mp4_best');
+                                          }
+                                        }
                                       }
                                     }}
                                   >

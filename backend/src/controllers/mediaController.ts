@@ -121,11 +121,16 @@ export const downloadFile = async (req: Request, res: Response): Promise<void> =
     });
 
     try {
+        const supportedAudioFormats = ['mp3', 'wav', 'aac', 'm4a'];
+        const isAudio = selectedFormat === 'audio' ||
+                        formatId === 'bestaudio/best' ||
+                        (targetFormat && supportedAudioFormats.includes(targetFormat.toLowerCase()));
+
         const isInstagramReel = url.includes('instagram.com') && (
             url.includes('/reel/') || url.includes('/reels/') || url.includes('/tv/')
         );
 
-        if (videoUrl || isInstagramReel) {
+        if (!isAudio && (videoUrl || isInstagramReel)) {
             let targetVideoUrl = videoUrl;
             let targetTitle = title || 'video';
 
@@ -161,7 +166,6 @@ export const downloadFile = async (req: Request, res: Response): Promise<void> =
             }
         }
 
-        const isAudio = selectedFormat === 'audio' || (targetFormat && targetFormat !== 'mp4') || formatId === 'bestaudio/best';
         const reqFormatId = formatId || (isAudio ? 'bestaudio/best' : 'best');
 
         const dlStart = Date.now();
