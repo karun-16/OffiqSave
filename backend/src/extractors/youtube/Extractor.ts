@@ -13,6 +13,7 @@ export class YouTubeExtractor implements MediaExtractor {
   }
 
   public async extract(url: string): Promise<MediaInfo> {
+    console.log('[TRACE YT 4] Entered YouTubeExtractor.extract');
     try {
       const parsed = await YouTubeParser.parseWithYtDlp(url);
 
@@ -27,6 +28,8 @@ export class YouTubeExtractor implements MediaExtractor {
         source: 'yt-dlp Primary'
       };
     } catch (err: any) {
+      const cleanMsg = (err.message || String(err)).slice(0, 300).replace(/C:\\.*\\/g, '[PATH]').replace(/\n/g, ' ');
+      console.error(`[TRACE YT ERROR] Stage: YouTubeExtractor.extract | Message: ${cleanMsg}`);
       throw new ExtractorError(err.message || 'YouTube extraction failed', 'EXTRACTION_FAILED', this.platform(), err);
     }
   }

@@ -17,6 +17,8 @@ function getYouTubeCookiePath(): string | null {
 
 export class YouTubeParser {
   public static async parseWithYtDlp(url: string): Promise<YouTubeParsedResult> {
+    console.log('[TRACE YT 5] Entered YouTubeParser.parseWithYtDlp');
+    console.log('[TRACE YT 6] Cookie detection starting');
     const cookiePath = getYouTubeCookiePath();
     const flags: any = {
       dumpSingleJson: true,
@@ -30,22 +32,27 @@ export class YouTubeParser {
       flags.jsRuntimes = 'node';
       try {
         const cookieSize = fs.statSync(cookiePath).size;
+        console.log(`[TRACE YT 7] Cookie detected: YES (${cookieSize} bytes)`);
         console.log(`[YouTube Diagnostic] Cookie file detected: YES (${cookieSize} bytes)`);
       } catch (e) {
+        console.log(`[TRACE YT 7] Cookie detected: YES`);
         console.log(`[YouTube Diagnostic] Cookie file detected: YES`);
       }
       console.log(`[YouTube Diagnostic] Mode: AUTHENTICATED_WEB`);
       console.log(`[YouTube Diagnostic] JS runtime requested: node`);
     } else {
       flags.extractorArgs = 'youtube:player_client=android_vr,android';
+      console.log(`[TRACE YT 7] Cookie detected: NO`);
       console.log(`[YouTube Diagnostic] Cookie file detected: NO`);
       console.log(`[YouTube Diagnostic] Mode: UNAUTHENTICATED_ANDROID`);
       console.log(`[YouTube Diagnostic] JS runtime requested: none`);
     }
 
     let rawData: any;
+    console.log('[TRACE YT 8] Calling yt-dlp');
     try {
       rawData = await ytDlp(url, flags);
+      console.log('[TRACE YT 9] yt-dlp returned successfully');
     } catch (err: any) {
       const msg = String(err?.message || err || '');
       let category = 'UNKNOWN';
@@ -59,8 +66,10 @@ export class YouTubeParser {
         category = 'COOKIE_ERROR';
       }
 
+      console.error(`[TRACE YT ERROR] Stage: YouTubeParser.parseWithYtDlp | Category: ${category}`);
       console.error(`[YouTube Diagnostic] Failure category: ${category}`);
       const cleanSummary = msg.slice(0, 300).replace(/C:\\.*\\/g, '[PATH]').replace(/\n/g, ' ');
+      console.error(`[TRACE YT ERROR] Message: ${cleanSummary}`);
       console.error(`[YouTube Diagnostic] Sanitized error summary: ${cleanSummary}`);
       throw err;
     }

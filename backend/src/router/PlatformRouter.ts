@@ -30,9 +30,10 @@ export class PlatformRouter {
     }
 
     // 2. Find native extractor
+    console.log('[TRACE YT 2] Resolving extractor');
     const extractor = ExtractorRegistry.findExtractor(url);
-
     if (extractor) {
+      console.log(`[TRACE YT 3] Extractor resolved: ${extractor.platform()}`);
       try {
         const mediaInfo = await extractor.extract(url);
         const execTime = performance.now() - startTime;

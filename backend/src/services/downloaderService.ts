@@ -47,6 +47,7 @@ export class DownloaderService {
     }
 
     static async getMediaInfo(rawUrl: string): Promise<any> {
+        console.log('[TRACE YT 1] Entered DownloaderService.getMediaInfo');
         try {
             await this.checkYtDlpVersion();
             const url = cleanUrl(rawUrl);
