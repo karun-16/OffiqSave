@@ -2,24 +2,13 @@ import ytDlp from 'yt-dlp-exec';
 import { YouTubeParsedResult } from './Types';
 import fs from 'fs';
 import path from 'path';
-
-function getYouTubeCookiePath(): string | null {
-  const prodCookiePath = '/etc/secrets/youtube-cookies.txt';
-  if (fs.existsSync(prodCookiePath)) {
-    return prodCookiePath;
-  }
-  const devCookiePath = path.join(process.cwd(), 'youtube-cookies.txt');
-  if (fs.existsSync(devCookiePath)) {
-    return devCookiePath;
-  }
-  return null;
-}
+import { prepareWritableCookieCopy, cleanupWritableCookieCopy } from '../../utils/cookieHelper';
 
 export class YouTubeParser {
   public static async parseWithYtDlp(url: string): Promise<YouTubeParsedResult> {
     console.log('[TRACE YT 5] Entered YouTubeParser.parseWithYtDlp');
     console.log('[TRACE YT 6] Cookie detection starting');
-    const cookiePath = getYouTubeCookiePath();
+    const cookieCopy = prepareWritableCookieCopy();
     const flags: any = {
       dumpSingleJson: true,
       noWarnings: true,
@@ -27,13 +16,14 @@ export class YouTubeParser {
       youtubeSkipDashManifest: true
     };
 
-    if (cookiePath) {
-      flags.cookies = cookiePath;
+    if (cookieCopy) {
+      flags.cookies = cookieCopy.tempPath;
       flags.jsRuntimes = 'node';
       try {
-        const cookieSize = fs.statSync(cookiePath).size;
+        const cookieSize = fs.statSync(cookieCopy.tempPath).size;
         console.log(`[TRACE YT 7] Cookie detected: YES (${cookieSize} bytes)`);
         console.log(`[YouTube Diagnostic] Cookie file detected: YES (${cookieSize} bytes)`);
+        console.log(`[YouTube Diagnostic] Temporary writable cookie copy created: YES (${cookieCopy.tempPath})`);
       } catch (e) {
         console.log(`[TRACE YT 7] Cookie detected: YES`);
         console.log(`[YouTube Diagnostic] Cookie file detected: YES`);
@@ -78,6 +68,8 @@ export class YouTubeParser {
       console.error(`[TRACE YT ERROR] Message: ${cleanSummary}`);
       console.error(`[YouTube Diagnostic] Sanitized error summary: ${cleanSummary}`);
       throw err;
+    } finally {
+      cleanupWritableCookieCopy(cookieCopy);
     }
 
     const formats = (rawData.formats || []).map((f: any) => ({

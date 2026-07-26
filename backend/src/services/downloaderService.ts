@@ -6,6 +6,7 @@ import { MediaInfo as CommonMediaInfo } from '../common/types';
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { prepareWritableCookieCopy, cleanupWritableCookieCopy } from '../utils/cookieHelper';
 
 export interface MediaInfo {
     title: string;
@@ -18,18 +19,6 @@ export interface MediaInfo {
     videos?: any[];
     mediaType: 'video' | 'audio' | 'image' | 'gallery';
     images?: Array<{ id: string; url: string; width?: number; height?: number; format: string }>;
-}
-
-function getYouTubeCookiePath(): string | null {
-  const prodCookiePath = '/etc/secrets/youtube-cookies.txt';
-  if (fs.existsSync(prodCookiePath)) {
-    return prodCookiePath;
-  }
-  const devCookiePath = path.join(process.cwd(), 'youtube-cookies.txt');
-  if (fs.existsSync(devCookiePath)) {
-    return devCookiePath;
-  }
-  return null;
 }
 
 export class DownloaderService {
@@ -91,10 +80,11 @@ export class DownloaderService {
             preferFreeFormats: true
         };
 
+        let cookieCopy: any = null;
         if (isYouTubeUrl) {
-            const cookiePath = getYouTubeCookiePath();
-            if (cookiePath) {
-                ytDlpOptions.cookies = cookiePath;
+            cookieCopy = prepareWritableCookieCopy();
+            if (cookieCopy) {
+                ytDlpOptions.cookies = cookieCopy.tempPath;
                 ytDlpOptions.jsRuntimes = 'node';
             } else {
                 ytDlpOptions.extractorArgs = 'youtube:player_client=android_vr,android';
@@ -102,7 +92,11 @@ export class DownloaderService {
         }
 
         console.log(`[yt-dlp DOWNLOAD] Transferring media via yt-dlp format: '${formatExpr}'...`);
-        await ytDlp(url, ytDlpOptions);
+        try {
+            await ytDlp(url, ytDlpOptions);
+        } finally {
+            cleanupWritableCookieCopy(cookieCopy);
+        }
 
         // Find the created file in tmp matching fileId
         const files = fs.readdirSync(tmpDir);
