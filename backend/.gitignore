@@ -13,4 +13,5 @@ search_all_urls.js
 debug_*.ts
 test_*.ts
 verify_*.ts
-cookies.txt
+*cookies.txt
+youtube-test.json

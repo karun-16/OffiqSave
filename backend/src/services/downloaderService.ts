@@ -20,6 +20,18 @@ export interface MediaInfo {
     images?: Array<{ id: string; url: string; width?: number; height?: number; format: string }>;
 }
 
+function getYouTubeCookiePath(): string | null {
+  const prodCookiePath = '/etc/secrets/youtube-cookies.txt';
+  if (fs.existsSync(prodCookiePath)) {
+    return prodCookiePath;
+  }
+  const devCookiePath = path.join(process.cwd(), 'youtube-cookies.txt');
+  if (fs.existsSync(devCookiePath)) {
+    return devCookiePath;
+  }
+  return null;
+}
+
 export class DownloaderService {
     private static versionChecked = false;
 
@@ -79,7 +91,13 @@ export class DownloaderService {
         };
 
         if (isYouTubeUrl) {
-            ytDlpOptions.extractorArgs = 'youtube:player_client=android_vr,android';
+            const cookiePath = getYouTubeCookiePath();
+            if (cookiePath) {
+                ytDlpOptions.cookies = cookiePath;
+                ytDlpOptions.jsRuntimes = 'node';
+            } else {
+                ytDlpOptions.extractorArgs = 'youtube:player_client=android_vr,android';
+            }
         }
 
         console.log(`[yt-dlp DOWNLOAD] Transferring media via yt-dlp format: '${formatExpr}'...`);

@@ -14,10 +14,10 @@ const downloadTokenCache = new NodeCache({ stdTTL: 300 }); // 5 minutes short-li
 // ─── /api/info ───────────────────────────────────────────────────────────────
 
 export const info = async (req: Request, res: Response): Promise<void> => {
+    const url = req.body?.url;
     try {
         console.log('[mediaController.ts] Controller entry: info()');
         console.log('[mediaController.ts] Before validation');
-        const url = req.body?.url;
         if (!url || typeof url !== 'string') {
             res.status(400).json({ error: 'Valid URL string is required' });
             return;
@@ -30,7 +30,11 @@ export const info = async (req: Request, res: Response): Promise<void> => {
     } catch (error: any) {
         console.error('[mediaController.ts] Info Error inside catch block:', error);
         console.error(error.stack);
-        res.status(500).json({ error: error.message || 'Failed to fetch media' });
+        const isYouTube = typeof url === 'string' && (url.includes('youtube.com') || url.includes('youtu.be') || url.includes('youtube-nocookie.com'));
+        const publicMessage = isYouTube
+            ? 'Unable to access this YouTube media right now. Please try again later.'
+            : (error.message || 'Failed to fetch media');
+        res.status(500).json({ error: publicMessage });
     }
 };
 

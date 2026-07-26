@@ -1,15 +1,36 @@
 import ytDlp from 'yt-dlp-exec';
 import { YouTubeParsedResult } from './Types';
+import fs from 'fs';
+import path from 'path';
+
+function getYouTubeCookiePath(): string | null {
+  const prodCookiePath = '/etc/secrets/youtube-cookies.txt';
+  if (fs.existsSync(prodCookiePath)) {
+    return prodCookiePath;
+  }
+  const devCookiePath = path.join(process.cwd(), 'youtube-cookies.txt');
+  if (fs.existsSync(devCookiePath)) {
+    return devCookiePath;
+  }
+  return null;
+}
 
 export class YouTubeParser {
   public static async parseWithYtDlp(url: string): Promise<YouTubeParsedResult> {
+    const cookiePath = getYouTubeCookiePath();
     const flags: any = {
       dumpSingleJson: true,
       noWarnings: true,
       preferFreeFormats: true,
-      youtubeSkipDashManifest: true,
-      extractorArgs: 'youtube:player_client=android_vr,android'
+      youtubeSkipDashManifest: true
     };
+
+    if (cookiePath) {
+      flags.cookies = cookiePath;
+      flags.jsRuntimes = 'node';
+    } else {
+      flags.extractorArgs = 'youtube:player_client=android_vr,android';
+    }
 
     const rawData: any = await ytDlp(url, flags);
 
