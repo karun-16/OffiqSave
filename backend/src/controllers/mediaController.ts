@@ -201,6 +201,8 @@ export const getDownloadStatus = async (req: Request, res: Response): Promise<vo
         return;
     }
 
+    console.log(`[DOWNLOAD STATUS] ${downloadId}: ${job.status}`);
+
     if (job.status === 'processing') {
         res.json({ status: 'processing' });
         return;
@@ -225,10 +227,15 @@ export const downloadFile = async (req: Request, res: Response): Promise<void> =
 
     const job = jobManager.getJob(downloadId);
 
+    console.log(`[DOWNLOAD FILE] Request received: ${downloadId}`);
+
     if (!job) {
+        console.log(`[DOWNLOAD FILE] Job state at request: NOT_FOUND_OR_EXPIRED`);
         res.status(404).json({ error: 'Download request invalid or expired' });
         return;
     }
+
+    console.log(`[DOWNLOAD FILE] Job state at request: ${job.status}`);
 
     if (job.status === 'processing') {
         res.status(425).json({ error: 'Media preparation is still in progress.' });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link2, Download, CheckCircle, Loader2, PlayCircle, ChevronDown, AlertCircle, Zap, FileVideo, Globe, Shield, RefreshCw } from "lucide-react";
 import axios from "axios";
@@ -125,6 +125,8 @@ export default function Home() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
 
+  const hasTriggeredDownloadRef = useRef(false);
+
   // Single Video Selection State
   const [selectedFormat, setSelectedFormat] = useState("video");
   const [selectedAudioExt, setSelectedAudioExt] = useState("mp3");
@@ -241,13 +243,14 @@ export default function Home() {
   };
 
   const handleDownload = async () => {
-    if (!mediaInfo || !selectedQuality) return;
+    if (!mediaInfo || !selectedQuality || status === "downloading") return;
 
+    console.log("[DOWNLOAD FRONTEND] Prepare requested");
     setStatus("downloading");
     setDownloadStageIdx(0); // "Preparing..."
+    hasTriggeredDownloadRef.current = false;
 
     let pollInterval: NodeJS.Timeout | null = null;
-    let hasTriggeredDownload = false;
 
     try {
       const selectedFormatObj = mediaInfo?.formats?.find((f: any) => f.format_id === selectedQuality);
@@ -269,7 +272,9 @@ export default function Home() {
 
       // Step 1: Prepare download job and get downloadId
       const prepRes = await axios.post(`${API_URL}/api/download/prepare`, payload);
-      const { downloadId } = prepRes.data;
+      const { downloadId, status: initialStatus } = prepRes.data;
+
+      console.log(`[DOWNLOAD FRONTEND] Prepare returned: ${initialStatus || 'processing'}`);
 
       if (!downloadId) {
         throw new Error("Failed to initialize download job.");
@@ -278,44 +283,72 @@ export default function Home() {
       setDownloadStageIdx(2); // "Preparing Download..."
 
       // Step 2: Poll /api/download/status/:downloadId every 1.5 seconds
+      let pollCount = 0;
       pollInterval = setInterval(async () => {
         try {
+          pollCount++;
           const statusRes = await axios.get(`${API_URL}/api/download/status/${downloadId}`);
           const { status: jobStatus, error: jobError } = statusRes.data;
 
+          console.log(`[DOWNLOAD FRONTEND] Poll #${pollCount}: ${jobStatus}`);
+
           if (jobStatus === "ready") {
-            if (pollInterval) clearInterval(pollInterval);
-            if (!hasTriggeredDownload) {
-              hasTriggeredDownload = true;
-              setDownloadStageIdx(7); // "Download Started"
-
-              const downloadFileUrl = `${API_URL}/api/download/file/${downloadId}`;
-              window.location.href = downloadFileUrl;
-
-              setTimeout(() => setStatus("done"), 1000);
-              setTimeout(() => {
-                setStatus("idle");
-                setUrl("");
-                setMediaInfo(null);
-              }, 6000);
+            if (pollInterval) {
+              clearInterval(pollInterval);
+              pollInterval = null;
             }
+
+            if (hasTriggeredDownloadRef.current) {
+              console.log("[DOWNLOAD FRONTEND] File request already triggered - ignored");
+              return;
+            }
+
+            hasTriggeredDownloadRef.current = true;
+            console.log("[DOWNLOAD FRONTEND] Triggering file request");
+            setDownloadStageIdx(7); // "Download Started"
+
+            const downloadFileUrl = `${API_URL}/api/download/file/${downloadId}`;
+            const a = document.createElement("a");
+            a.href = downloadFileUrl;
+            a.style.display = "none";
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+              a.remove();
+            }, 1000);
+
+            setTimeout(() => setStatus("done"), 1000);
+            setTimeout(() => {
+              setStatus("idle");
+              setUrl("");
+              setMediaInfo(null);
+            }, 6000);
+
           } else if (jobStatus === "failed") {
-            if (pollInterval) clearInterval(pollInterval);
+            if (pollInterval) {
+              clearInterval(pollInterval);
+              pollInterval = null;
+            }
             setErrorMsg(jobError || "Download processing failed. Please try again.");
             setStatus("idle");
           } else if (jobStatus === "processing") {
-            // Stage progression based on processing state
             setDownloadStageIdx(prev => (prev < 5 ? prev + 1 : prev));
           }
         } catch (pollErr: any) {
-          if (pollInterval) clearInterval(pollInterval);
+          if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+          }
           setErrorMsg(pollErr.response?.data?.error || "Error checking download status.");
           setStatus("idle");
         }
       }, 1500);
 
     } catch (err: any) {
-      if (pollInterval) clearInterval(pollInterval);
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
       setErrorMsg(err.response?.data?.error || err.message || "Download failed. Please try again.");
       setStatus("idle");
     }
