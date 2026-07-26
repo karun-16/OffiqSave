@@ -50,10 +50,14 @@ export class YouTubeParser {
 
     let rawData: any;
     console.log('[TRACE YT 8] Calling yt-dlp');
+    const startMs = performance.now();
+    console.log(`[TRACE YT 8A START] Timestamp: ${new Date().toISOString()}`);
     try {
       rawData = await ytDlp(url, flags);
-      console.log('[TRACE YT 9] yt-dlp returned successfully');
+      const duration = (performance.now() - startMs).toFixed(2);
+      console.log(`[TRACE YT 9] yt-dlp returned successfully (Duration: ${duration} ms)`);
     } catch (err: any) {
+      const duration = (performance.now() - startMs).toFixed(2);
       const msg = String(err?.message || err || '');
       let category = 'UNKNOWN';
       if (msg.includes("Sign in to confirm you're not a bot")) {
@@ -64,9 +68,11 @@ export class YouTubeParser {
         category = 'JS_CHALLENGE';
       } else if (msg.toLowerCase().includes('cookie')) {
         category = 'COOKIE_ERROR';
+      } else if (msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('etimedout')) {
+        category = 'NETWORK_TIMEOUT';
       }
 
-      console.error(`[TRACE YT ERROR] Stage: YouTubeParser.parseWithYtDlp | Category: ${category}`);
+      console.error(`[TRACE YT ERROR] Stage: YT_DLP_EXECUTION | Duration: ${duration} ms | Category: ${category}`);
       console.error(`[YouTube Diagnostic] Failure category: ${category}`);
       const cleanSummary = msg.slice(0, 300).replace(/C:\\.*\\/g, '[PATH]').replace(/\n/g, ' ');
       console.error(`[TRACE YT ERROR] Message: ${cleanSummary}`);
