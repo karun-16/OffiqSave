@@ -1,7 +1,17 @@
 import ffmpeg from 'fluent-ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
+import ffprobeStatic from 'ffprobe-static';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+
+if (ffmpegPath) {
+  ffmpeg.setFfmpegPath(ffmpegPath);
+}
+
+if (ffprobeStatic && ffprobeStatic.path) {
+  ffmpeg.setFfprobePath(ffprobeStatic.path);
+}
 
 const TMP_DIR = path.join(process.cwd(), 'tmp');
 
