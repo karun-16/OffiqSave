@@ -113,8 +113,11 @@ export class InstagramParser {
       } else if (typeof node.video_url === 'string') {
         isVideo = true;
         bestItems = [{ id: 'ig-vid', url: node.video_url, video_url: node.video_url, is_video: true }];
-      } else if (!isVideo && typeof node.display_url === 'string' && bestItems.length === 0) {
-        bestItems = [{ id: 'ig-img', url: node.display_url, is_video: false }];
+      } else if (!isVideo && bestItems.length === 0) {
+        const bestImg = InstagramParser.extractBestSingleImageUrl(node);
+        if (bestImg) {
+          bestItems = [{ id: 'ig-img', url: bestImg.url, is_video: false, width: bestImg.width, height: bestImg.height }];
+        }
       }
     });
 
@@ -147,5 +150,47 @@ export class InstagramParser {
       thumbnail: thumbnail || bestItems[0].url,
       images: bestItems
     };
+  }
+
+  private static extractBestSingleImageUrl(node: any): { url: string; width?: number; height?: number } | null {
+    if (!node || typeof node !== 'object') return null;
+
+    // Priority 1: node.image_versions2.candidates (largest area/resolution)
+    if (Array.isArray(node.image_versions2?.candidates) && node.image_versions2.candidates.length > 0) {
+      const candidates = node.image_versions2.candidates;
+      const best = candidates.reduce((max: any, curr: any) => {
+        if (!curr || typeof curr.url !== 'string') return max;
+        const maxArea = (max?.width || 0) * (max?.height || 0);
+        const currArea = (curr.width || 0) * (curr.height || 0);
+        return currArea > maxArea ? curr : max;
+      }, candidates[0]);
+
+      if (best && typeof best.url === 'string') {
+        return { url: best.url, width: best.width, height: best.height };
+      }
+    }
+
+    // Priority 2: node.display_resources (largest area config_width * config_height)
+    if (Array.isArray(node.display_resources) && node.display_resources.length > 0) {
+      const resources = node.display_resources;
+      const best = resources.reduce((max: any, curr: any) => {
+        const maxArea = (max?.config_width || max?.width || 0) * (max?.config_height || max?.height || 0);
+        const currArea = (curr?.config_width || curr?.width || 0) * (curr?.config_height || curr?.height || 0);
+        const currUrl = curr?.src || curr?.url;
+        return (currUrl && currArea > maxArea) ? curr : max;
+      }, resources[0]);
+
+      const bestUrl = best?.src || best?.url;
+      if (typeof bestUrl === 'string') {
+        return { url: bestUrl, width: best?.config_width || best?.width, height: best?.config_height || best?.height };
+      }
+    }
+
+    // Priority 3: node.display_url
+    if (typeof node.display_url === 'string') {
+      return { url: node.display_url, width: node.dimensions?.width, height: node.dimensions?.height };
+    }
+
+    return null;
   }
 }
