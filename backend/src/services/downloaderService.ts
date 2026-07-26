@@ -70,13 +70,20 @@ export class DownloaderService {
         const fileId = uuidv4();
         const outputTemplate = path.join(tmpDir, `${fileId}.%(ext)s`);
 
-        console.log(`[yt-dlp DOWNLOAD] Transferring YouTube media via yt-dlp format: '${formatExpr}'...`);
-        await ytDlp(url, {
+        const isYouTubeUrl = url.includes('youtube.com') || url.includes('youtu.be') || url.includes('youtube-nocookie.com');
+        const ytDlpOptions: any = {
             format: formatExpr,
             output: outputTemplate,
             noWarnings: true,
             preferFreeFormats: true
-        });
+        };
+
+        if (isYouTubeUrl) {
+            ytDlpOptions.extractorArgs = 'youtube:player_client=android_vr,android';
+        }
+
+        console.log(`[yt-dlp DOWNLOAD] Transferring media via yt-dlp format: '${formatExpr}'...`);
+        await ytDlp(url, ytDlpOptions);
 
         // Find the created file in tmp matching fileId
         const files = fs.readdirSync(tmpDir);

@@ -3,12 +3,15 @@ import { YouTubeParsedResult } from './Types';
 
 export class YouTubeParser {
   public static async parseWithYtDlp(url: string): Promise<YouTubeParsedResult> {
-    const rawData: any = await ytDlp(url, {
+    const flags: any = {
       dumpSingleJson: true,
       noWarnings: true,
       preferFreeFormats: true,
-      youtubeSkipDashManifest: true
-    });
+      youtubeSkipDashManifest: true,
+      extractorArgs: 'youtube:player_client=android_vr,android'
+    };
+
+    const rawData: any = await ytDlp(url, flags);
 
     const formats = (rawData.formats || []).map((f: any) => ({
       id: f.format_id,
