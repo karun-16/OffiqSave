@@ -244,14 +244,10 @@ export default function Home() {
     if (!mediaInfo || !selectedQuality) return;
 
     setStatus("downloading");
-    setDownloadStageIdx(0);
+    setDownloadStageIdx(0); // "Preparing..."
 
-    const stageInterval = setInterval(() => {
-      setDownloadStageIdx(prev => {
-        if (prev < DOWNLOAD_STAGES.length - 2) return prev + 1;
-        return prev;
-      });
-    }, 3000);
+    let pollInterval: NodeJS.Timeout | null = null;
+    let hasTriggeredDownload = false;
 
     try {
       const selectedFormatObj = mediaInfo?.formats?.find((f: any) => f.format_id === selectedQuality);
@@ -271,25 +267,55 @@ export default function Home() {
         payload.videoUrl = directVideoUrl;
       }
 
-      // Step 1: Prepare download and get downloadId
+      // Step 1: Prepare download job and get downloadId
       const prepRes = await axios.post(`${API_URL}/api/download/prepare`, payload);
       const { downloadId } = prepRes.data;
 
-      clearInterval(stageInterval);
-      setDownloadStageIdx(DOWNLOAD_STAGES.length - 1);
+      if (!downloadId) {
+        throw new Error("Failed to initialize download job.");
+      }
 
-      // Step 2: Trigger native browser download manager directly (no Axios Blob buffering)
-      const downloadFileUrl = `${API_URL}/api/download/file/${downloadId}`;
-      window.location.href = downloadFileUrl;
+      setDownloadStageIdx(2); // "Preparing Download..."
 
-      setTimeout(() => setStatus("done"), 1000);
-      setTimeout(() => {
-        setStatus("idle");
-        setUrl("");
-        setMediaInfo(null);
-      }, 6000);
+      // Step 2: Poll /api/download/status/:downloadId every 1.5 seconds
+      pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await axios.get(`${API_URL}/api/download/status/${downloadId}`);
+          const { status: jobStatus, error: jobError } = statusRes.data;
+
+          if (jobStatus === "ready") {
+            if (pollInterval) clearInterval(pollInterval);
+            if (!hasTriggeredDownload) {
+              hasTriggeredDownload = true;
+              setDownloadStageIdx(7); // "Download Started"
+
+              const downloadFileUrl = `${API_URL}/api/download/file/${downloadId}`;
+              window.location.href = downloadFileUrl;
+
+              setTimeout(() => setStatus("done"), 1000);
+              setTimeout(() => {
+                setStatus("idle");
+                setUrl("");
+                setMediaInfo(null);
+              }, 6000);
+            }
+          } else if (jobStatus === "failed") {
+            if (pollInterval) clearInterval(pollInterval);
+            setErrorMsg(jobError || "Download processing failed. Please try again.");
+            setStatus("idle");
+          } else if (jobStatus === "processing") {
+            // Stage progression based on processing state
+            setDownloadStageIdx(prev => (prev < 5 ? prev + 1 : prev));
+          }
+        } catch (pollErr: any) {
+          if (pollInterval) clearInterval(pollInterval);
+          setErrorMsg(pollErr.response?.data?.error || "Error checking download status.");
+          setStatus("idle");
+        }
+      }, 1500);
+
     } catch (err: any) {
-      clearInterval(stageInterval);
+      if (pollInterval) clearInterval(pollInterval);
       setErrorMsg(err.response?.data?.error || err.message || "Download failed. Please try again.");
       setStatus("idle");
     }

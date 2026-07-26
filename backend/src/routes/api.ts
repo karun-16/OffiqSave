@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { info, download, downloadImage, convert, downloadZip, prepareDownload, downloadFile } from '../controllers/mediaController';
+import { info, download, downloadImage, convert, downloadZip, prepareDownload, getDownloadStatus, downloadFile } from '../controllers/mediaController';
 
 const router = Router();
 
@@ -9,6 +9,7 @@ router.post('/info', (req, res, next) => {
 }, info);
 
 router.post('/download/prepare', prepareDownload);
+router.get('/download/status/:downloadId', getDownloadStatus);
 router.get('/download/file/:downloadId', downloadFile);
 
 router.post('/download', (req, res, next) => {

@@ -38,93 +38,16 @@ export const info = async (req: Request, res: Response): Promise<void> => {
     }
 };
 
-// ─── /api/download/prepare ───────────────────────────────────────────────────
+import { jobManager } from '../services/jobManager';
 
-export const prepareDownload = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const { url, formatId, selectedFormat, targetFormat, videoUrl, title } = req.body || {};
-
-        if (!url || typeof url !== 'string') {
-            res.status(400).json({ error: 'Valid URL string is required' });
-            return;
-        }
-
-        const downloadId = uuidv4();
-        downloadTokenCache.set(downloadId, {
-            url,
-            formatId,
-            selectedFormat,
-            targetFormat,
-            videoUrl,
-            title
-        });
-
-        console.log(`[download/prepare] Issued downloadId: ${downloadId} for url: ${url}`);
-        res.json({ downloadId });
-    } catch (error: any) {
-        console.error('[prepareDownload Error]:', error);
-        res.status(500).json({ error: error.message || 'Failed to prepare download' });
-    }
-};
-
-// ─── /api/download/file/:downloadId ──────────────────────────────────────────
-
-export const downloadFile = async (req: Request, res: Response): Promise<void> => {
-    const getReceivedTime = Date.now();
-    const downloadId = String(req.params.downloadId);
-    
-    console.log(`\n===== NATIVE DOWNLOAD GET TRACE =====`);
-    console.log(`GET received: ${new Date(getReceivedTime).toISOString()}`);
-    console.log(`downloadId: ${downloadId}`);
-
-    const payload: any = downloadTokenCache.get(downloadId);
-    console.log(`Token lookup: token found: ${!!payload}`);
-
-    if (!payload) {
-        res.status(404).json({ error: 'Download request invalid or expired' });
-        return;
-    }
-
-    // Single-use token: consume immediately
-    downloadTokenCache.del(downloadId);
-    console.log(`token consumed: true`);
-
-    const { url, formatId, selectedFormat, targetFormat, videoUrl, title } = payload;
-    console.log(`Stored request:`);
-    console.log(`  url: ${url}`);
-    console.log(`  formatId: ${formatId}`);
-    console.log(`  selectedFormat: ${selectedFormat}`);
-    console.log(`  targetFormat: ${targetFormat}`);
-
-    let downloadedFilePath = '';
-    let finalFilePath = '';
-    let isCleanupDone = false;
-
-    const doCleanup = () => {
-        if (!isCleanupDone) {
-            isCleanupDone = true;
-            console.log(`[CLEANUP] timestamp: ${new Date().toISOString()}`);
-            if (downloadedFilePath && fs.existsSync(downloadedFilePath)) {
-                cleanupFile(downloadedFilePath);
-                console.log(`[CLEANUP] Deleted source: ${downloadedFilePath}`);
-            }
-            if (finalFilePath && finalFilePath !== downloadedFilePath && fs.existsSync(finalFilePath)) {
-                cleanupFile(finalFilePath);
-                console.log(`[CLEANUP] Deleted converted: ${finalFilePath}`);
-            }
-        }
-    };
-
-    res.on('finish', () => {
-        console.log(`Response event 'finish': ${new Date().toISOString()}`);
-        doCleanup();
-    });
-    res.on('close', () => {
-        console.log(`Response event 'close': ${new Date().toISOString()}`);
-        doCleanup();
-    });
+async function processDownloadJobAsync(downloadId: string): Promise<void> {
+    const startMs = Date.now();
+    console.log(`[DOWNLOAD JOB] Preparation started for downloadId: ${downloadId}`);
+    const job = jobManager.getJob(downloadId);
+    if (!job) return;
 
     try {
+        const { url, formatId, selectedFormat, targetFormat, videoUrl, title } = job;
         const supportedAudioFormats = ['mp3', 'wav', 'aac', 'm4a'];
         const isAudio = selectedFormat === 'audio' ||
                         formatId === 'bestaudio/best' ||
@@ -133,6 +56,9 @@ export const downloadFile = async (req: Request, res: Response): Promise<void> =
         const isInstagramReel = url.includes('instagram.com') && (
             url.includes('/reel/') || url.includes('/reels/') || url.includes('/tv/')
         );
+
+        let downloadedFilePath = '';
+        let finalFilePath = '';
 
         if (!isAudio && (videoUrl || isInstagramReel)) {
             let targetVideoUrl = videoUrl;
@@ -158,44 +84,44 @@ export const downloadFile = async (req: Request, res: Response): Promise<void> =
                 const response = await fetch(targetVideoUrl, { headers: fetchHeaders, redirect: 'follow' });
                 if (response.ok && response.body) {
                     const safeTitle = (targetTitle || 'video').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-                    res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.mp4"`);
-                    res.setHeader('Content-Type', 'video/mp4');
-                    const contentLength = response.headers.get('content-length');
-                    if (contentLength) res.setHeader('Content-Length', contentLength);
+                    const tmpDir = path.join(process.cwd(), 'tmp');
+                    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+                    finalFilePath = path.join(tmpDir, `${uuidv4()}_${safeTitle}.mp4`);
+                    const arrayBuf = await response.arrayBuffer();
+                    fs.writeFileSync(finalFilePath, Buffer.from(arrayBuf));
 
-                    const nodeStream = Readable.fromWeb(response.body as any);
-                    nodeStream.pipe(res);
+                    const stats = fs.statSync(finalFilePath);
+                    const prepDuration = Date.now() - startMs;
+                    console.log(`[DOWNLOAD JOB] Preparation completed in ${prepDuration} ms`);
+                    console.log(`[DOWNLOAD JOB] Status: ready`);
+                    console.log(`[DOWNLOAD JOB] File size: ${stats.size} bytes`);
+                    jobManager.updateJobStatus(downloadId, {
+                        status: 'ready',
+                        filePath: finalFilePath,
+                        fileName: `${safeTitle}.mp4`,
+                        fileSize: stats.size
+                    });
                     return;
                 }
             }
         }
 
         const reqFormatId = formatId || (isAudio ? 'bestaudio/best' : 'best');
-
-        const dlStart = Date.now();
-        console.log(`yt-dlp download start timestamp: ${new Date(dlStart).toISOString()}`);
-
         downloadedFilePath = await DownloaderService.downloadMedia(url, reqFormatId);
-        const dlFinish = Date.now();
-        console.log(`yt-dlp download finish timestamp: ${new Date(dlFinish).toISOString()} (elapsed: ${dlFinish - dlStart} ms)`);
-
         finalFilePath = downloadedFilePath;
 
         if (isAudio && targetFormat && targetFormat !== 'mp4') {
             const currentExt = path.extname(downloadedFilePath).replace('.', '');
             if (currentExt !== targetFormat) {
-                const ffStart = Date.now();
-                console.log(`FFmpeg conversion start: ${new Date(ffStart).toISOString()}`);
                 finalFilePath = await DownloaderService.convertMedia(downloadedFilePath, targetFormat);
-                const ffFinish = Date.now();
-                console.log(`FFmpeg conversion finish: ${new Date(ffFinish).toISOString()} (elapsed: ${ffFinish - ffStart} ms)`);
+                if (downloadedFilePath !== finalFilePath && fs.existsSync(downloadedFilePath)) {
+                    cleanupFile(downloadedFilePath);
+                }
             }
         }
 
         const fileExists = fs.existsSync(finalFilePath);
         const stats = fileExists ? fs.statSync(finalFilePath) : null;
-        console.log(`Generated file path: ${finalFilePath}`);
-        console.log(`File exists: ${fileExists}, size: ${stats ? stats.size : 0} bytes`);
 
         if (!fileExists || !stats || stats.size === 0) {
             throw new Error('Processed media file not found or empty.');
@@ -205,25 +131,151 @@ export const downloadFile = async (req: Request, res: Response): Promise<void> =
         const ext = path.extname(finalFilePath).replace('.', '') || (isAudio ? 'mp3' : 'mp4');
         const fileName = `${safeTitle}.${ext}`;
 
-        const preResDownloadTime = Date.now();
-        console.log(`Immediately before res.download() timestamp: ${new Date(preResDownloadTime).toISOString()}`);
-        console.log(`TIME TO FIRST RESPONSE HEADER/BYTE: ${preResDownloadTime - getReceivedTime} ms`);
+        const prepDuration = Date.now() - startMs;
+        console.log(`[DOWNLOAD JOB] Preparation completed in ${prepDuration} ms`);
+        console.log(`[DOWNLOAD JOB] Status: ready`);
+        console.log(`[DOWNLOAD JOB] File size: ${stats.size} bytes`);
 
-        res.download(finalFilePath, fileName, (err) => {
-            const cbTime = Date.now();
-            console.log(`res.download callback timestamp: ${new Date(cbTime).toISOString()}`);
-            if (err) {
-                console.error('[downloadFile] res.download callback error:', err);
-            }
-            doCleanup();
+        jobManager.updateJobStatus(downloadId, {
+            status: 'ready',
+            filePath: finalFilePath,
+            fileName,
+            fileSize: stats.size
+        });
+    } catch (err: any) {
+        const isYouTube = typeof job.url === 'string' && (job.url.includes('youtube.com') || job.url.includes('youtu.be') || job.url.includes('youtube-nocookie.com'));
+        const publicMessage = isYouTube
+            ? 'Unable to access this YouTube media right now. Please try again later.'
+            : (err?.message || 'Failed to prepare media for download.');
+        console.error(`[DOWNLOAD JOB ERROR] Stage: PREPARATION | Category: ${isYouTube ? 'YOUTUBE_FAILURE' : 'GENERIC_FAILURE'}`);
+        console.error(`[DOWNLOAD JOB ERROR] Message: ${err?.message || err}`);
+        jobManager.updateJobStatus(downloadId, {
+            status: 'failed',
+            error: publicMessage
+        });
+    }
+}
+
+// ─── /api/download/prepare ───────────────────────────────────────────────────
+
+export const prepareDownload = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { url, formatId, selectedFormat, targetFormat, videoUrl, title } = req.body || {};
+
+        if (!url || typeof url !== 'string') {
+            res.status(400).json({ error: 'Valid URL string is required' });
+            return;
+        }
+
+        const downloadId = uuidv4();
+        jobManager.createJob(downloadId, {
+            url,
+            formatId,
+            selectedFormat,
+            targetFormat,
+            videoUrl,
+            title
+        });
+
+        console.log(`[DOWNLOAD JOB] Created: ${downloadId} for url: ${url}`);
+        res.json({ downloadId, status: 'processing' });
+
+        // Launch background download preparation asynchronously
+        processDownloadJobAsync(downloadId).catch((err) => {
+            console.error(`[DOWNLOAD JOB Unhandled Error] downloadId: ${downloadId}`, err);
         });
     } catch (error: any) {
-        console.error('[downloadFile Exception]:', error.stack || error);
-        doCleanup();
-        if (!res.headersSent) {
-            res.status(500).json({ error: error.message || 'Failed to download media' });
-        }
+        console.error('[prepareDownload Error]:', error);
+        res.status(500).json({ error: error.message || 'Failed to prepare download' });
     }
+};
+
+// ─── /api/download/status/:downloadId ────────────────────────────────────────
+
+export const getDownloadStatus = async (req: Request, res: Response): Promise<void> => {
+    const downloadId = String(req.params.downloadId);
+    const job = jobManager.getJob(downloadId);
+
+    if (!job) {
+        res.status(404).json({ error: 'Download request invalid or expired' });
+        return;
+    }
+
+    if (job.status === 'processing') {
+        res.json({ status: 'processing' });
+        return;
+    }
+
+    if (job.status === 'ready') {
+        res.json({ status: 'ready' });
+        return;
+    }
+
+    if (job.status === 'failed') {
+        res.json({ status: 'failed', error: job.error || 'Unable to prepare this media for download.' });
+        return;
+    }
+};
+
+// ─── /api/download/file/:downloadId ──────────────────────────────────────────
+
+export const downloadFile = async (req: Request, res: Response): Promise<void> => {
+    const getReceivedTime = Date.now();
+    const downloadId = String(req.params.downloadId);
+
+    const job = jobManager.getJob(downloadId);
+
+    if (!job) {
+        res.status(404).json({ error: 'Download request invalid or expired' });
+        return;
+    }
+
+    if (job.status === 'processing') {
+        res.status(425).json({ error: 'Media preparation is still in progress.' });
+        return;
+    }
+
+    if (job.status === 'failed') {
+        res.status(500).json({ error: job.error || 'Unable to prepare this media for download.' });
+        return;
+    }
+
+    if (job.status !== 'ready' || !job.filePath || !fs.existsSync(job.filePath)) {
+        res.status(404).json({ error: 'Prepared file not found or expired.' });
+        return;
+    }
+
+    console.log(`\n===== NATIVE DOWNLOAD GET TRACE =====`);
+    console.log(`[DOWNLOAD JOB] File request received`);
+    console.log(`[DOWNLOAD JOB] Status: ready`);
+    const timeToResDownload = Date.now() - getReceivedTime;
+    console.log(`[DOWNLOAD JOB] Time from GET request to res.download(): ${timeToResDownload} ms`);
+
+    const filePath = job.filePath;
+    const fileName = job.fileName || 'media.mp4';
+
+    let isCleanupDone = false;
+    const doCleanup = () => {
+        if (!isCleanupDone) {
+            isCleanupDone = true;
+            console.log(`[DOWNLOAD JOB] Transfer finished`);
+            jobManager.cleanupJob(downloadId);
+        }
+    };
+
+    res.on('finish', () => {
+        doCleanup();
+    });
+    res.on('close', () => {
+        doCleanup();
+    });
+
+    res.download(filePath, fileName, (err) => {
+        if (err) {
+            console.error('[DOWNLOAD JOB Error] res.download callback error:', err);
+        }
+        doCleanup();
+    });
 };
 
 // ─── /api/download ───────────────────────────────────────────────────────────
